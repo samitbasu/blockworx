@@ -1,0 +1,18 @@
+[package]
+name = "blockworx"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = "4.6.1"
+eframe = { version = "0.34.1", features = ["persistence"] }
+egui = "0.34.1"
+hexcolor = { version = "0.2.0", features = ["serde"] }
+kdl = "6.5.0"
+miette = { version = "7.6.0", features = ["fancy"] }
+pathfinding = "4.15.0"
+petgraph = "0.8.3"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+thiserror = "2.0.18"

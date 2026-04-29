@@ -1,0 +1,50 @@
+document "MyDesign" {
+  block "A" {
+    pins {
+      pin "in"  side="west" at=0
+      pin "out" side="east" at=0
+    }
+    visual x=100 y=200 w=80 h=40 color="#ccccee"
+
+    definition {
+      block "mixer" {
+        pins {
+          pin "p" side="west" at=5
+          pin "q" side="west" at=15
+          pin "r" side="east" at=10
+        }
+        visual x=10 y=10 w=30 h=20
+
+        definition {
+        }
+      }
+
+      block "gain" {
+        pins {
+          pin "in"  side="west" at=0
+          pin "out" side="east" at=0
+        }
+        visual x=50 y=10 w=30 h=20
+
+        definition {
+        }
+      }
+
+      nets {
+        net "n1" from="mixer.r" to="gain.in" {
+          route color="#00ff00" {
+            pt x=40 y=20
+            pt x=50 y=20
+            label "sig" at=5
+          }
+        }
+        net "n2" from="in" to="mixer.p" {
+          route {
+            pt x=0  y=20
+            pt x=10 y=20
+          }
+        }
+      }
+    }
+  }
+}
