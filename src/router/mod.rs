@@ -252,17 +252,23 @@ impl RouterNG {
         }
         turtle.compile()
     }
-    // pub fn is_route_blocked(&mut self, edges: &[RouteEdge]) -> bool {
-    //     self.update();
-    //     edges
-    //         .iter()
-    //         .any(|edge| self.blocks.iter().any(|block| block.intersects_edge(edge)))
-    // }
+    pub fn is_route_blocked<'a>(&mut self, mut edges: impl Iterator<Item = &'a RouteEdge>) -> bool {
+        self.update();
+        edges.any(|edge| {
+            self.blocks
+                .iter()
+                .any(|block| block.intersects_edge(edge.start, edge.end))
+        })
+    }
     pub fn is_accessible(&self, test: impl Into<Point>) -> bool {
         let test: Point = test.into();
         !self.blocks.iter().any(|block| block.contains(test))
     }
-    pub fn add_existing_route(&mut self, edges: &[RouteEdge], cost: impl Into<Cost>) {
+    pub fn add_existing_route<'a>(
+        &mut self,
+        edges: impl Iterator<Item = &'a RouteEdge>,
+        cost: impl Into<Cost>,
+    ) {
         let cost: Cost = cost.into();
         for edge in edges {
             let start: Point = edge.start.into();
@@ -610,29 +616,29 @@ impl RouterNG {
     {
         let mut path = Vec::new();
         self.seed_channels(start, COST_ZERO);
-        if let Some(first_wp) = waypoints.first() {
+        if let Some((first_wp_id, first_wp)) = waypoints.first() {
             self.seed_channels(first_wp.pos, COST_ZERO);
             let subpath = self.path_find_with_fallback(start, first_wp.pos);
             path.extend(subpath.into_iter().map(|point| TaggedPoint {
                 pos: point,
-                segment: SegmentKind::StartToWaypoint(first_wp.id),
+                segment: SegmentKind::StartToWaypoint(first_wp_id),
             }));
             for windows in waypoints.windows(2) {
-                let wp_start = windows[0];
-                let wp_end = windows[1];
+                let (wp_start_id, wp_start) = windows[0];
+                let (wp_end_id, wp_end) = windows[1];
                 self.seed_channels(wp_end.pos, COST_ZERO);
-                let subpath = self.path_find_with_fallback(wp_start, wp_end);
+                let subpath = self.path_find_with_fallback(wp_start.pos, wp_end.pos);
                 path.extend(subpath.into_iter().map(|point| TaggedPoint {
-                    segment: SegmentKind::WaypointToWaypoint(wp_start.id, wp_end.id),
+                    segment: SegmentKind::WaypointToWaypoint(wp_start_id, wp_end_id),
                     pos: point,
                 }));
             }
-            let last_wp = waypoints.last().unwrap_or(first_wp);
+            let (last_wp_id, last_wp) = waypoints.last().unwrap_or((first_wp_id, first_wp));
             self.seed_channels(head, COST_ZERO);
             let subpath = self.path_find_with_fallback(last_wp.pos, head);
             path.extend(subpath.into_iter().map(|point| TaggedPoint {
                 pos: point,
-                segment: SegmentKind::WaypointToEnd(last_wp.id),
+                segment: SegmentKind::WaypointToEnd(last_wp_id),
             }));
             path
         } else {

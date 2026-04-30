@@ -30,6 +30,17 @@ impl<K, V> Default for Store<K, V> {
     }
 }
 
+// Allow collecting into a store
+impl<K: KeyType, V> FromIterator<V> for Store<K, V> {
+    fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {
+        let mut store = Store::default();
+        for item in iter {
+            store.insert(item);
+        }
+        store
+    }
+}
+
 impl<K: KeyType, V> Store<K, V> {
     pub fn insert(&mut self, value: V) -> K {
         let id = self.next_id + 1;
@@ -78,6 +89,17 @@ impl<K: KeyType, V> Store<K, V> {
     }
     pub fn keys(&self) -> impl Iterator<Item = K> {
         self.items.iter().map(|(k, _)| *k)
+    }
+    pub fn first(&self) -> Option<(K, &V)> {
+        self.items.first().map(|(k, v)| (*k, v))
+    }
+    pub fn last(&self) -> Option<(K, &V)> {
+        self.items.last().map(|(k, v)| (*k, v))
+    }
+    pub fn windows(&self, size: usize) -> impl Iterator<Item = Vec<(K, &V)>> {
+        self.items
+            .windows(size)
+            .map(|window| window.iter().map(|(k, v)| (*k, v)).collect())
     }
 }
 

@@ -40,7 +40,11 @@ impl Block {
     pub fn contains(&self, point: Point) -> bool {
         self.spans_x(point.x) && self.spans_y(point.y)
     }
-    fn intersects_edge(&self, start_point: impl Into<Point>, end_point: impl Into<Point>) -> bool {
+    pub fn intersects_edge(
+        &self,
+        start_point: impl Into<Point>,
+        end_point: impl Into<Point>,
+    ) -> bool {
         // Check for intersection between the edge and the block.  The edge is
         // either horizontal or vertical, so we can check for intersection by comparing the coordinates.
         let start_point: Point = start_point.into();

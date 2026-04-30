@@ -1,4 +1,4 @@
-use crate::state::WaypointId;
+use crate::store::WaypointId;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SegmentKind {

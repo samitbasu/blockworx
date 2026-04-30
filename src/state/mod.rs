@@ -18,11 +18,14 @@ pub enum ResizeMode {
     CenterBottom,
 }
 
-#[derive(Clone, PartialEq, Default, Debug)]
+#[derive(PartialEq, Default, Debug, derive_more::From)]
 pub enum State {
     #[default]
+    #[from(skip)]
     Idle,
+    #[from(skip)]
     Panning,
+    #[from(skip)]
     AddText,
     AddTextHoveredRoute(AddTextHoveredRoute),
     AddingRect(AddingRect),
@@ -58,93 +61,6 @@ impl State {
     }
     pub fn panning() -> Self {
         State::Panning
-    }
-}
-
-impl From<RouteHovered> for State {
-    fn from(value: RouteHovered) -> Self {
-        State::RouteHovered(value)
-    }
-}
-
-impl From<RouteSelected> for State {
-    fn from(value: RouteSelected) -> Self {
-        State::RouteSelected(value)
-    }
-}
-impl From<RouteEdgeHovered> for State {
-    fn from(value: RouteEdgeHovered) -> Self {
-        State::RouteEdgeHovered(value)
-    }
-}
-impl From<RouteCornerHovered> for State {
-    fn from(value: RouteCornerHovered) -> Self {
-        State::RouteCornerHovered(value)
-    }
-}
-impl From<InProgressAutoRoute> for State {
-    fn from(value: InProgressAutoRoute) -> Self {
-        State::InProgressAutoRoute(value)
-    }
-}
-
-impl From<ProposedAutoRoute> for State {
-    fn from(value: ProposedAutoRoute) -> Self {
-        State::ProposedAutoRoute(value)
-    }
-}
-
-impl From<WaypointHovered> for State {
-    fn from(value: WaypointHovered) -> Self {
-        State::WaypointHovered(value)
-    }
-}
-
-impl From<RouteEdgeDragged> for State {
-    fn from(value: RouteEdgeDragged) -> Self {
-        State::RouteEdgeDragged(value)
-    }
-}
-
-impl From<RouteLabelHovered> for State {
-    fn from(value: RouteLabelHovered) -> Self {
-        State::RouteLabelHovered(value)
-    }
-}
-
-impl From<EditingRouteLabelText> for State {
-    fn from(value: EditingRouteLabelText) -> Self {
-        State::EditingRouteLabelText(value)
-    }
-}
-
-impl From<WaypointDragged> for State {
-    fn from(value: WaypointDragged) -> Self {
-        State::WaypointDragged(value)
-    }
-}
-
-impl From<AddTextButtonHovered> for State {
-    fn from(value: AddTextButtonHovered) -> Self {
-        State::AddTextButtonHovered(value)
-    }
-}
-
-impl From<TextAnchorHovered> for State {
-    fn from(value: TextAnchorHovered) -> Self {
-        State::TextAnchorHovered(value)
-    }
-}
-
-impl From<AddTextHoveredRoute> for State {
-    fn from(value: AddTextHoveredRoute) -> Self {
-        State::AddTextHoveredRoute(value)
-    }
-}
-
-impl From<TextAnchorDragged> for State {
-    fn from(value: TextAnchorDragged) -> Self {
-        State::TextAnchorDragged(value)
     }
 }
 
@@ -274,32 +190,17 @@ pub struct TextAnchorDragged {
     pub delta_pos: Vec2,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Copy, Debug, PartialOrd, Ord)]
-pub struct WaypointId(usize);
-
-impl From<usize> for WaypointId {
-    fn from(x: usize) -> Self {
-        Self(x)
-    }
-}
-
-impl std::fmt::Display for WaypointId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "w{}", self.0)
-    }
-}
-
-#[derive(Clone, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct InProgressAutoRoute {
     pub start: LineAnchor,
-    pub waypoints: Vec<Waypoint>,
+    pub waypoints: Store<WaypointId, Waypoint>,
     pub head: Pos2,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct ProposedAutoRoute {
     pub start: LineAnchor,
-    pub waypoints: Vec<Waypoint>,
+    pub waypoints: Store<WaypointId, Waypoint>,
     pub finish: LineAnchor,
 }
 

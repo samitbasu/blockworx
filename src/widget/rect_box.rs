@@ -28,6 +28,17 @@ pub fn resize_rect(rect: &Rect, mode: ResizeMode, delta: Vec2) -> Rect {
     }
 }
 
+pub fn control_corner(rect: &Rect, mode: ResizeMode) -> Pos2 {
+    match mode {
+        ResizeMode::LeftTop => rect.left_top(),
+        ResizeMode::RightTop => rect.right_top(),
+        ResizeMode::LeftBottom => rect.left_bottom(),
+        ResizeMode::RightBottom => rect.right_bottom(),
+        ResizeMode::CenterTop => rect.center_top(),
+        ResizeMode::CenterBottom => rect.center_bottom(),
+    }
+}
+
 impl RectBox {
     pub fn label(&self, id: LabelId) -> Option<&Label> {
         self.labels.get(id)
