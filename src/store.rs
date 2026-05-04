@@ -17,7 +17,7 @@ impl<K: std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for Store<K, V> {
     }
 }
 
-trait KeyType: Copy + PartialOrd {
+pub trait KeyType: Copy + PartialOrd {
     fn from_usize(value: usize) -> Self;
 }
 

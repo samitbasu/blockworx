@@ -1,5 +1,5 @@
 use egui::{
-    Align2, Color32, PointerButton, Pos2, Rect, Response, Stroke, StrokeKind, TextEdit, Ui, Vec2,
+    Align2, Color32, PointerButton, Pos2, Rect, Response, Stroke, StrokeKind, TextEdit, Ui,
     epaint::TextShape, pos2, vec2,
 };
 
@@ -584,7 +584,8 @@ impl Drawing {
         }
         None
     }
-    fn handle_selected_state(&mut self, rect: RectId, response: Response) -> State {
+    fn handle_selected_state(&mut self, inner: Selected, response: Response) -> State {
+        let rect = inner.rect;
         if response.double_clicked_by(PointerButton::Primary) {
             return EditingName { rect }.into();
         }
@@ -623,7 +624,7 @@ impl Drawing {
             && let Some(pos) = response.interact_pointer_pos()
             && let Some(hbox) = self.rect(rect)
             && let Some(lid) = hbox.iter_pins().find_map(|(lid, _)| {
-                if hbox.control_pin_for_label(lid)?.distance(pos) <= PORT_RADIUS {
+                if hbox.pin_head_pos(lid)?.distance(pos) <= PORT_RADIUS {
                     Some(lid)
                 } else {
                     None
@@ -687,7 +688,8 @@ impl Drawing {
         }
         Selected { rect }.into()
     }
-    fn handle_potential_resize(&self, rect: RectId, mode: ResizeMode, response: Response) -> State {
+    fn handle_potential_resize(&self, inner: PotentialResize, response: Response) -> State {
+        let PotentialResize { rect, mode } = inner;
         if let Some(hover_pos) = response.hover_pos()
             && let Some(bbox) = self.rect(rect)
             && hover_pos.distance(control_corner(&bbox.gui_rect(), mode)) >= MOVE_HOVER_DISTANCE
@@ -704,20 +706,21 @@ impl Drawing {
         }
         PotentialResize { rect, mode }.into()
     }
-    fn handle_pin_label_hovered(&self, rect: RectId, label: PinId, response: Response) -> State {
+    fn handle_pin_label_hovered(&self, inner: PinLabelHovered, response: Response) -> State {
+        let PinLabelHovered { rect, pin } = inner;
         if let Some(hover_pos) = response.hover_pos()
             && let Some(bbox) = self.rect(rect)
-            && let Some(label) = bbox.pin(label)
+            && let Some(pin) = bbox.pin(pin)
         {
-            let label_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), label);
-            if !label_bbox.contains(hover_pos) {
+            let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin);
+            if !pin_bbox.contains(hover_pos) {
                 return Selected { rect }.into();
             }
         }
         if response.double_clicked_by(egui::PointerButton::Primary) {
-            return EditingPinText { rect, pin: label }.into();
+            return EditingPinText { rect, pin }.into();
         }
-        PinLabelHovered { rect, pin: label }.into()
+        PinLabelHovered { rect, pin }.into()
     }
     fn handle_route_label_hovered(&self, route: RouteLabelHovered, response: Response) -> State {
         if let Some(hover_pos) = response.hover_pos()
@@ -734,36 +737,37 @@ impl Drawing {
     }
     fn handle_pin_label_grip_hovered(
         &self,
-        rect: RectId,
-        label: PinId,
+        inner: PinLabelGripHovered,
         response: Response,
     ) -> State {
+        let PinLabelGripHovered { rect, pin } = inner;
         if response.drag_started_by(egui::PointerButton::Primary) || response.dragged() {
             eprintln!("Starting to drag port label grip");
             return PinDragged {
                 rect,
-                pin: label,
+                pin,
                 delta_pos: vec2(0.0, 0.0),
             }
             .into();
         }
         if let Some(hover_pos) = response.hover_pos()
             && let Some(bbox) = self.rect(rect)
-            && let Some(label) = bbox.pin(label)
+            && let Some(pin) = bbox.pin(pin)
         {
-            let hamburger_rect = get_hamburger_rect(bbox.gui_rect(), label).expand(GRIP_SHIM);
+            let hamburger_rect = get_hamburger_rect(bbox.gui_rect(), pin).expand(GRIP_SHIM);
             if !hamburger_rect.contains(hover_pos) {
                 return Selected { rect }.into();
             }
         }
-        PinLabelGripHovered { rect, pin: label }.into()
+        PinLabelGripHovered { rect, pin }.into()
     }
-    fn handle_pin_head_hovered(&self, rect: RectId, label: PinId, response: Response) -> State {
+    fn handle_pin_head_hovered(&self, inner: PinHeadHovered, response: Response) -> State {
+        let PinHeadHovered { rect, pin } = inner;
         if let Some(hover_pos) = response.hover_pos()
             && let Some(bbox) = self.rect(rect)
-            && let Some(label) = bbox.pin(label)
+            && let Some(pin) = bbox.pin(pin)
         {
-            let pin_location = get_control_pin_bbox(bbox.gui_rect(), label);
+            let pin_location = get_control_pin_bbox(bbox.gui_rect(), pin);
             if !pin_location.contains(hover_pos) {
                 return Selected { rect }.into();
             }
@@ -772,13 +776,13 @@ impl Drawing {
             && let Some(pos) = response.interact_pointer_pos()
         {
             return InProgressAutoRoute {
-                start: LineAnchor { rect, pin: label },
+                start: LineAnchor { rect, pin },
                 waypoints: Store::default(),
                 head: pos,
             }
             .into();
         }
-        PinHeadHovered { rect, pin: label }.into()
+        PinHeadHovered { rect, pin }.into()
     }
     fn handle_route_corner_hovered(
         &mut self,
@@ -986,13 +990,12 @@ impl Drawing {
         }
         inner.into()
     }
-    fn handle_resizing_rect(
-        &mut self,
-        rect: RectId,
-        mode: ResizeMode,
-        delta_pos: Vec2,
-        response: Response,
-    ) -> State {
+    fn handle_resizing_rect(&mut self, inner: ResizingRect, response: Response) -> State {
+        let ResizingRect {
+            rect,
+            mode,
+            delta_pos,
+        } = inner;
         if response.dragged_by(egui::PointerButton::Primary) {
             let delta = response.drag_delta();
             return ResizingRect {
@@ -1014,7 +1017,8 @@ impl Drawing {
         }
         .into()
     }
-    fn handle_moving_rect(&mut self, rect: RectId, delta_pos: Vec2, response: Response) -> State {
+    fn handle_moving_rect(&mut self, inner: MovingRect, response: Response) -> State {
+        let MovingRect { rect, delta_pos } = inner;
         if response.dragged_by(egui::PointerButton::Primary) {
             let delta = response.drag_delta();
             return MovingRect {
@@ -1030,7 +1034,8 @@ impl Drawing {
         }
         MovingRect { rect, delta_pos }.into()
     }
-    fn handle_adding_rect(&mut self, start_pos: Pos2, end_pos: Pos2, response: Response) -> State {
+    fn handle_adding_rect(&mut self, inner: AddingRect, response: Response) -> State {
+        let AddingRect { start_pos, end_pos } = inner;
         if response.dragged_by(egui::PointerButton::Primary)
             && let Some(pos) = response.interact_pointer_pos()
         {
@@ -1062,17 +1067,19 @@ impl Drawing {
         }
         State::panning()
     }
-    fn handle_editing_name(&self, rect: RectId, response: Response) -> State {
+    fn handle_editing_name(&self, inner: EditingName, response: Response) -> State {
+        let rect = inner.rect;
         if response.clicked() {
             return Selected { rect }.into();
         }
         EditingName { rect }.into()
     }
-    fn handle_editing_label_text(&self, rect: RectId, label: PinId, response: Response) -> State {
+    fn handle_editing_pin_text(&self, inner: EditingPinText, response: Response) -> State {
+        let EditingPinText { rect, pin } = inner;
         if response.clicked() {
             return Selected { rect }.into();
         }
-        EditingPinText { rect, pin: label }.into()
+        EditingPinText { rect, pin }.into()
     }
     fn handle_editing_route_label_text(
         &mut self,
@@ -1116,13 +1123,12 @@ impl Drawing {
         }
         State::RouteEdgeDragged(target)
     }
-    fn handle_pin_dragged(
-        &mut self,
-        rect: RectId,
-        pin: PinId,
-        delta_pos: Vec2,
-        response: Response,
-    ) -> State {
+    fn handle_pin_dragged(&mut self, inner: PinDragged, response: Response) -> State {
+        let PinDragged {
+            rect,
+            pin,
+            delta_pos,
+        } = inner;
         if let Some(pos) = response.interact_pointer_pos()
             && let Some(rbox) = self.rect_mut(rect)
         {
@@ -1165,7 +1171,7 @@ impl Drawing {
         if response.clicked_by(egui::PointerButton::Primary)
             && let Some(pos) = response.interact_pointer_pos()
         {
-            let id = auto_route.waypoints.insert(Waypoint {
+            let _ = auto_route.waypoints.insert(Waypoint {
                 pos: snap_to_grid(pos),
                 locked: true,
             });
@@ -1255,51 +1261,34 @@ impl Drawing {
                 route_fixup = true;
                 self.handle_route_edge_dragged(inner, response)
             }
-            State::Selected(Selected { rect }) => self.handle_selected_state(rect, response),
-            State::PotentialResize(PotentialResize { rect, mode }) => {
-                self.handle_potential_resize(rect, mode, response)
+            State::Selected(inner) => self.handle_selected_state(inner, response),
+            State::PotentialResize(inner) => self.handle_potential_resize(inner, response),
+            State::PinLabelHovered(inner) => self.handle_pin_label_hovered(inner, response),
+            State::PinLabelGripHovered(inner) => {
+                self.handle_pin_label_grip_hovered(inner, response)
             }
-
-            State::PinLabelHovered(PinLabelHovered { rect, pin: label }) => {
-                self.handle_pin_label_hovered(rect, label, response)
-            }
-            State::PinLabelGripHovered(PinLabelGripHovered { rect, pin: label }) => {
-                self.handle_pin_label_grip_hovered(rect, label, response)
-            }
-            State::PinHeadHovered(PinHeadHovered { rect, pin: label }) => {
-                self.handle_pin_head_hovered(rect, label, response)
-            }
-            State::ResizingRect(ResizingRect {
-                rect,
-                mode,
-                delta_pos,
-            }) => {
+            State::PinHeadHovered(inner) => self.handle_pin_head_hovered(inner, response),
+            State::ResizingRect(inner) => {
                 route_fixup = true;
-                self.handle_resizing_rect(rect, mode, delta_pos, response)
+                self.handle_resizing_rect(inner, response)
             }
-            State::MovingRect(MovingRect { rect, delta_pos }) => {
+            State::MovingRect(inner) => {
                 route_fixup = true;
-                self.handle_moving_rect(rect, delta_pos, response)
+                self.handle_moving_rect(inner, response)
             }
-            State::AddingRect(AddingRect { start_pos, end_pos }) => {
+            State::AddingRect(inner) => {
                 route_fixup = true;
-                self.handle_adding_rect(start_pos, end_pos, response)
+                self.handle_adding_rect(inner, response)
             }
             State::Panning => self.handle_panning(response),
-            State::EditingName(EditingName { rect }) => self.handle_editing_name(rect, response),
-            State::EditingLabelText(EditingPinText { rect, pin: label }) => {
-                self.handle_editing_label_text(rect, label, response)
-            }
+            State::EditingName(inner) => self.handle_editing_name(inner, response),
+            State::EditingPinText(inner) => self.handle_editing_pin_text(inner, response),
             State::EditingRouteLabelText(inner) => {
                 self.handle_editing_route_label_text(inner, response)
             }
-            State::PinDragged(PinDragged {
-                rect,
-                pin,
-                delta_pos,
-            }) => {
+            State::PinDragged(inner) => {
                 route_fixup = true;
-                self.handle_pin_dragged(rect, pin, delta_pos, response)
+                self.handle_pin_dragged(inner, response)
             }
             State::InProgressAutoRoute(inner) => {
                 route_fixup = true;
@@ -1419,7 +1408,7 @@ pub fn demo_drawing() -> Drawing {
     // Create a route
     /*
      *
-     * ProposedAutoRoute(ProposedAutoRoute { start: LineAnchor { rect: RectId(0), label: LabelId(0) }, waypoints: [Waypoint { pos: [-285.0 240.0], id: WaypointId(0), label: None, locked: true }, Waypoint { pos: [-285.0 -90.0], id: WaypointId(1), label: None, locked: true }, Waypoint { pos: [210.0 -90.0], id: WaypointId(2), label: None, locked: true }, Waypoint { pos: [210.0 15.0], id: WaypointId(3), label: None, locked: true }], finish: LineAnchor { rect: RectId(1), label: LabelId(0) } })
+     * ProposedAutoRoute(ProposedAutoRoute { start: LineAnchor { rect: RectId(0), pin: PinId(0) }, waypoints: [Waypoint { pos: [-285.0 240.0], id: WaypointId(0), label: None, locked: true }, Waypoint { pos: [-285.0 -90.0], id: WaypointId(1), label: None, locked: true }, Waypoint { pos: [210.0 -90.0], id: WaypointId(2), label: None, locked: true }, Waypoint { pos: [210.0 15.0], id: WaypointId(3), label: None, locked: true }], finish: LineAnchor { rect: RectId(1), pin: PinId(0) } })
      *
      */
     let mut waypoints = Store::<WaypointId, Waypoint>::default();

@@ -1,7 +1,6 @@
-use core::f32;
 use std::path::PathBuf;
 
-use egui::{DragPanButtons, Rect, Scene, pos2};
+use egui::{DragPanButtons, Rect, Scene};
 
 use crate::widget::drawing::Drawing;
 

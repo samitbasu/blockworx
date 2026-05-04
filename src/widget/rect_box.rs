@@ -112,21 +112,21 @@ impl RectBox {
         let offset = self.next_pin_offset(PinSide::West)?;
         Some(self.inner.left_top() + vec2(-GRID_SIZE, GRID_SIZE + offset))
     }
-    pub fn control_pin_for_label(&self, label_id: PinId) -> Option<Pos2> {
-        self.pins.get(label_id).map(|label| match label.side {
-            PinSide::East => self.inner.right_top() + vec2(GRID_SIZE, GRID_SIZE + label.offset),
-            PinSide::West => self.inner.left_top() + vec2(-GRID_SIZE, GRID_SIZE + label.offset),
+    pub fn pin_head_pos(&self, pin_id: PinId) -> Option<Pos2> {
+        self.pins.get(pin_id).map(|pin| match pin.side {
+            PinSide::East => self.inner.right_top() + vec2(GRID_SIZE, GRID_SIZE + pin.offset),
+            PinSide::West => self.inner.left_top() + vec2(-GRID_SIZE, GRID_SIZE + pin.offset),
         })
     }
     pub fn anchor_point_with_rect(&self, rect: Rect, id: PinId) -> Option<Pos2> {
-        self.pins.get(id).map(|label| match label.side {
+        self.pins.get(id).map(|pin| match pin.side {
             PinSide::East => pos2(
                 rect.right() + GRID_SIZE,
-                rect.top() + GRID_SIZE + label.offset,
+                rect.top() + GRID_SIZE + pin.offset,
             ),
             PinSide::West => pos2(
                 rect.left() - GRID_SIZE,
-                rect.top() + GRID_SIZE + label.offset,
+                rect.top() + GRID_SIZE + pin.offset,
             ),
         })
     }

@@ -37,7 +37,7 @@ pub enum State {
     PinDragged(PinDragged),
     PinLabelHovered(PinLabelHovered),
     PinLabelGripHovered(PinLabelGripHovered),
-    EditingLabelText(EditingPinText),
+    EditingPinText(EditingPinText),
     PinHeadHovered(PinHeadHovered),
     InProgressAutoRoute(InProgressAutoRoute),
     ProposedAutoRoute(ProposedAutoRoute),
