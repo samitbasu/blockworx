@@ -5,9 +5,9 @@ use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, TextEdit, Ui, Vec2, pos2, ve
 use crate::{
     grid::*,
     state::*,
-    store::{LabelId, RectId},
+    store::{PinId, RectId},
     widget::{
-        label::{Label, LabelSide},
+        pin::{Pin, PinSide},
         rect_box::{RectBox, resize_rect},
     },
 };
@@ -43,7 +43,7 @@ pub fn draw_resizing_rect(rect: &RectBox, ui: &mut Ui, mode: ResizeMode, delta: 
         Color32::BLACK,
     );
     render_labels_with_box(
-        rect.iter_labels().map(|(_, label)| label),
+        rect.iter_pins().map(|(_, label)| label),
         resized_rect,
         GripState::Hidden,
         ui,
@@ -75,7 +75,7 @@ pub fn draw_moving_rect(rect: &RectBox, ui: &mut Ui, delta: Vec2) {
         Color32::BLACK,
     );
     render_labels_with_box(
-        rect.iter_labels().map(|(id, label)| label),
+        rect.iter_pins().map(|(id, label)| label),
         shifted_rect,
         GripState::Hidden,
         ui,
@@ -83,7 +83,7 @@ pub fn draw_moving_rect(rect: &RectBox, ui: &mut Ui, delta: Vec2) {
 }
 
 fn render_labels_with_box<'a>(
-    iter: impl Iterator<Item = &'a Label>,
+    iter: impl Iterator<Item = &'a Pin>,
     bbox: Rect,
     grip_state: GripState,
     ui: &mut Ui,
@@ -114,7 +114,7 @@ fn render_frame(rect: &RectBox, ui: &mut Ui) {
 fn render_with_grip_state(rect: &RectBox, grip_state: GripState, ui: &mut Ui) {
     render_frame(rect, ui);
     render_labels_with_box(
-        rect.iter_labels().map(|(id, label)| label),
+        rect.iter_pins().map(|(id, label)| label),
         rect.gui_rect(),
         grip_state,
         ui,
@@ -124,15 +124,15 @@ fn render_with_grip_state(rect: &RectBox, grip_state: GripState, ui: &mut Ui) {
 // Draw
 //          v anchor point
 // port [s] |----
-fn draw_label_and_pin(bbox: Rect, label: &Label, grip_state: GripState, offset: f32, ui: &mut Ui) {
+fn draw_label_and_pin(bbox: Rect, label: &Pin, grip_state: GripState, offset: f32, ui: &mut Ui) {
     let y_coord = bbox.top() + GRID_SIZE + label.offset + offset;
     let (text_pos, stem, align) = match label.side {
-        LabelSide::East => (
+        PinSide::East => (
             pos2(bbox.right() - GRID_SIZE, y_coord),
             vec2(GRID_SIZE, 0.0),
             egui::Align2::RIGHT_CENTER,
         ),
-        LabelSide::West => (
+        PinSide::West => (
             pos2(bbox.left() + GRID_SIZE, y_coord),
             vec2(-GRID_SIZE, 0.0),
             egui::Align2::LEFT_CENTER,
@@ -175,18 +175,18 @@ fn draw_label_and_pin(bbox: Rect, label: &Label, grip_state: GripState, offset: 
     }
 }
 
-pub fn estimate_bbox_for_label(bbox: Rect, label: &Label) -> Rect {
+pub fn estimate_bbox_for_pin_text(bbox: Rect, label: &Pin) -> Rect {
     let y_coord = bbox.top() + GRID_SIZE + label.offset;
     let text_width = label.text.len() as f32 * PORT_TEXT_SIZE * 0.6;
     match label.side {
-        LabelSide::East => Rect::from_min_max(
+        PinSide::East => Rect::from_min_max(
             pos2(
                 bbox.right() - GRID_SIZE - text_width,
                 y_coord - PORT_TEXT_SIZE / 2.0,
             ),
             pos2(bbox.right() - GRID_SIZE, y_coord + PORT_TEXT_SIZE / 2.0),
         ),
-        LabelSide::West => Rect::from_min_max(
+        PinSide::West => Rect::from_min_max(
             pos2(bbox.left() + GRID_SIZE, y_coord - PORT_TEXT_SIZE / 2.0),
             pos2(
                 bbox.left() + GRID_SIZE + text_width,
@@ -196,28 +196,28 @@ pub fn estimate_bbox_for_label(bbox: Rect, label: &Label) -> Rect {
     }
 }
 
-pub fn get_control_pin_bbox(bbox: Rect, label: &Label) -> Rect {
+pub fn get_control_pin_bbox(bbox: Rect, label: &Pin) -> Rect {
     let y_coord = bbox.top() + GRID_SIZE + label.offset;
     match label.side {
-        LabelSide::East => Rect::from_center_size(
+        PinSide::East => Rect::from_center_size(
             pos2(bbox.right() + GRID_SIZE, y_coord),
             vec2(PORT_RADIUS * 2.0, PORT_RADIUS * 2.0),
         ),
-        LabelSide::West => Rect::from_center_size(
+        PinSide::West => Rect::from_center_size(
             pos2(bbox.left() - GRID_SIZE, y_coord),
             vec2(PORT_RADIUS * 2.0, PORT_RADIUS * 2.0),
         ),
     }
 }
 
-pub fn get_hamburger_rect(bbox: Rect, label: &Label) -> Rect {
+pub fn get_hamburger_rect(bbox: Rect, label: &Pin) -> Rect {
     let y_coord = bbox.top() + GRID_SIZE + label.offset;
     let (text_pos, stem) = match label.side {
-        LabelSide::East => (
+        PinSide::East => (
             pos2(bbox.right() - GRID_SIZE, y_coord),
             vec2(GRID_SIZE, 0.0),
         ),
-        LabelSide::West => (
+        PinSide::West => (
             pos2(bbox.left() + GRID_SIZE, y_coord),
             vec2(-GRID_SIZE, 0.0),
         ),
@@ -225,8 +225,8 @@ pub fn get_hamburger_rect(bbox: Rect, label: &Label) -> Rect {
     Rect::from_center_size(text_pos + stem / 2.0, vec2(GRIP_SIZE, GRIP_SIZE))
 }
 
-pub fn draw_dragged_label(rrect: &RectBox, label: LabelId, delta_pos: Vec2, ui: &mut Ui) {
-    let Some(label) = rrect.label(label) else {
+pub fn draw_dragged_label(rrect: &RectBox, label: PinId, delta_pos: Vec2, ui: &mut Ui) {
+    let Some(label) = rrect.pin(label) else {
         return;
     };
     draw_label_and_pin(rrect.gui_rect(), label, GripState::Drawn, delta_pos.y, ui);
@@ -308,15 +308,15 @@ pub fn render_rect_box(
         }
         State::Selected(Selected { rect })
         | State::PotentialResize(PotentialResize { rect, .. })
-        | State::PortLabelHovered(PortLabelHovered { rect, .. })
-        | State::PortLabelGripHovered(PortLabelGripHovered { rect, .. })
+        | State::PinLabelHovered(PinLabelHovered { rect, .. })
+        | State::PinLabelGripHovered(PinLabelGripHovered { rect, .. })
             if id == *rect =>
         {
             render_selected(target, ui);
         }
-        State::PortPinHovered(PortPinHovered { rect, label }) if id == *rect => {
+        State::PinHeadHovered(PinHeadHovered { rect, pin: label }) if id == *rect => {
             render_selected(target, ui);
-            if let Some(label) = target.label(*label) {
+            if let Some(label) = target.pin(*label) {
                 let bbox = get_control_pin_bbox(target.gui_rect(), label);
                 ui.painter().circle(
                     bbox.center(),
@@ -334,15 +334,15 @@ pub fn render_rect_box(
         }) if id == *rect => {
             draw_resizing_rect(target, ui, *mode, *delta_pos);
         }
-        State::PortDragged(PortDragged {
+        State::PinDragged(PinDragged {
             rect,
-            label,
+            pin: label,
             delta_pos,
         }) if id == *rect => {
             render_frame(target, ui);
             render_labels_with_box(
                 target
-                    .iter_labels()
+                    .iter_pins()
                     .filter_map(|(lid, l)| if (lid != *label) { Some(l) } else { None }),
                 target.gui_rect(),
                 GripState::Drawn,
@@ -376,10 +376,10 @@ pub fn render_rect_box(
                 response.request_focus();
             }
         }
-        State::EditingLabelText(EditingLabelText { rect, label }) if id == *rect => {
+        State::EditingLabelText(EditingPinText { rect, pin: label }) if id == *rect => {
             render_selected(target, ui);
             let target_inner = target.gui_rect();
-            let Some(label_ref) = target.label_mut(*label) else {
+            let Some(label_ref) = target.pins_mut(*label) else {
                 return FocusResult::KeptFocus;
             };
             let editor_width =

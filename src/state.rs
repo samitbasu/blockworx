@@ -34,11 +34,11 @@ pub enum State {
     PotentialResize(PotentialResize),
     ResizingRect(ResizingRect),
     EditingName(EditingName),
-    PortDragged(PortDragged),
-    PortLabelHovered(PortLabelHovered),
-    PortLabelGripHovered(PortLabelGripHovered),
-    EditingLabelText(EditingLabelText),
-    PortPinHovered(PortPinHovered),
+    PinDragged(PinDragged),
+    PinLabelHovered(PinLabelHovered),
+    PinLabelGripHovered(PinLabelGripHovered),
+    EditingLabelText(EditingPinText),
+    PinHeadHovered(PinHeadHovered),
     InProgressAutoRoute(InProgressAutoRoute),
     ProposedAutoRoute(ProposedAutoRoute),
     RouteHovered(RouteHovered),
@@ -102,16 +102,16 @@ pub struct RouteEdgeDragged {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PortDragged {
+pub struct PinDragged {
     pub rect: RectId,
-    pub label: LabelId,
+    pub pin: PinId,
     pub delta_pos: Vec2,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PortLabelHovered {
+pub struct PinLabelHovered {
     pub rect: RectId,
-    pub label: LabelId,
+    pub pin: PinId,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -140,21 +140,21 @@ pub struct EditingRouteLabelText {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PortLabelGripHovered {
+pub struct PinLabelGripHovered {
     pub rect: RectId,
-    pub label: LabelId,
+    pub pin: PinId,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct EditingLabelText {
+pub struct EditingPinText {
     pub rect: RectId,
-    pub label: LabelId,
+    pub pin: PinId,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PortPinHovered {
+pub struct PinHeadHovered {
     pub rect: RectId,
-    pub label: LabelId,
+    pub pin: PinId,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -250,13 +250,13 @@ impl State {
                 ResizeMode::RightTop | ResizeMode::LeftBottom => CursorIcon::ResizeNeSw,
                 ResizeMode::CenterTop | ResizeMode::CenterBottom => CursorIcon::ResizeVertical,
             },
-            State::PortLabelHovered { .. }
+            State::PinLabelHovered { .. }
             | State::RouteLabelHovered { .. }
             | State::AddText
             | State::AddTextHoveredRoute { .. } => CursorIcon::Text,
-            State::PortLabelGripHovered { .. } => CursorIcon::Grab,
-            State::PortPinHovered { .. } => CursorIcon::Crosshair,
-            State::PortDragged { .. } => CursorIcon::Grabbing,
+            State::PinLabelGripHovered { .. } => CursorIcon::Grab,
+            State::PinHeadHovered { .. } => CursorIcon::Crosshair,
+            State::PinDragged { .. } => CursorIcon::Grabbing,
             State::RouteEdgeHovered(inner) => match inner.direction {
                 RouteDirection::Horizontal => CursorIcon::ResizeVertical,
                 RouteDirection::Vertical => CursorIcon::ResizeHorizontal,

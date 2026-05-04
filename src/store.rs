@@ -125,6 +125,6 @@ macro_rules! define_id {
 define_id!(WaypointId);
 define_id!(EdgeId);
 define_id!(WireLabelId);
-define_id!(LabelId);
+define_id!(PinId);
 define_id!(RectId);
 define_id!(RouteId);

@@ -1,12 +1,12 @@
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum LabelSide {
+pub enum PinSide {
     East,
     West,
 }
 
 #[derive(Clone)]
-pub struct Label {
+pub struct Pin {
     pub text: String,
-    pub side: LabelSide,
+    pub side: PinSide,
     pub offset: f32,
 }

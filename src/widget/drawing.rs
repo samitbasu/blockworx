@@ -9,7 +9,7 @@ use crate::{
         round_to_grid, snap_to_grid,
     },
     render::{
-        FocusResult, estimate_bbox_for_label, get_control_pin_bbox, get_hamburger_rect,
+        FocusResult, estimate_bbox_for_pin_text, get_control_pin_bbox, get_hamburger_rect,
         render_path_with_chamfered_corners, render_rect_box,
     },
     router::{RouterNG, RouterNGBuilder, TaggedPoint, WIRE_COST, cost::COST_ZERO},
@@ -18,7 +18,7 @@ use crate::{
     widget::{
         auto_route::AutoRoute,
         direction::RouteDirection,
-        label::LabelSide,
+        pin::PinSide,
         rect_box::{RectBox, control_corner, resize_rect},
         waypoint::Waypoint,
     },
@@ -38,7 +38,7 @@ const RESIZE_MODES: &[ResizeMode] = &[
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct LineAnchor {
     pub rect: RectId,
-    pub label: LabelId,
+    pub pin: PinId,
 }
 
 #[derive(Default)]
@@ -86,14 +86,14 @@ impl Drawing {
     }
     pub fn anchor(&self, anchor: LineAnchor) -> Option<Pos2> {
         let effective_rect = self.routing_box(anchor.rect)?;
-        if let State::PortDragged(inner) = &self.state
+        if let State::PinDragged(inner) = &self.state
             && anchor.rect == inner.rect
-            && anchor.label == inner.label
+            && anchor.pin == inner.pin
         {
             let center_line = effective_rect.center().x;
             let rect = self.rect(anchor.rect)?;
-            let label_pos = rect.anchor_point(anchor.label)?;
-            let current_pos = label_pos + inner.delta_pos;
+            let pin_pos = rect.anchor_point(anchor.pin)?;
+            let current_pos = pin_pos + inner.delta_pos;
             let anchor_x = if current_pos.x < center_line {
                 effective_rect.left() - GRID_SIZE
             } else {
@@ -103,14 +103,14 @@ impl Drawing {
             Some(snap_to_grid(pos2(anchor_x, anchor_y)))
         } else {
             self.rect(anchor.rect)
-                .and_then(|rect| rect.anchor_point_with_rect(effective_rect, anchor.label))
+                .and_then(|rect| rect.anchor_point_with_rect(effective_rect, anchor.pin))
         }
     }
     pub fn iter_anchors(&self) -> impl Iterator<Item = LineAnchor> + '_ {
         self.rect_boxes.iter().flat_map(|(rect_id, rect)| {
-            rect.iter_labels().map(move |(label_id, _)| LineAnchor {
+            rect.iter_pins().map(move |(pin_id, _)| LineAnchor {
                 rect: rect_id,
-                label: label_id,
+                pin: pin_id,
             })
         })
     }
@@ -532,10 +532,10 @@ impl Drawing {
         if response.drag_started_by(egui::PointerButton::Primary)
             && let Some(pos_start) = response.interact_pointer_pos()
         {
-            if let Some((id, rbox)) = self
+            if let Some((id, _)) = self
                 .rect_boxes
                 .iter()
-                .find(|(id, r)| r.gui_rect().contains(pos_start))
+                .find(|(_, r)| r.gui_rect().contains(pos_start))
             {
                 return MovingRect {
                     rect: id,
@@ -594,25 +594,25 @@ impl Drawing {
             if let Some(bbox) = self.rect_mut(rect)
                 && let Some(pin) = bbox.control_pin_location_east()
                 && pos.distance(pin) <= PORT_RADIUS
-                && let Some(next_offset) = bbox.next_port_offset(LabelSide::East)
+                && let Some(next_offset) = bbox.next_pin_offset(PinSide::East)
             {
-                bbox.add_label("port".into(), LabelSide::East, next_offset);
+                bbox.add_pin("port".into(), PinSide::East, next_offset);
                 self.reroute = true;
                 return Selected { rect }.into();
             }
             if let Some(bbox) = self.rect_mut(rect)
                 && let Some(pin) = bbox.control_pin_location_west()
                 && pos.distance(pin) <= PORT_RADIUS
-                && let Some(next_offset) = bbox.next_port_offset(LabelSide::West)
+                && let Some(next_offset) = bbox.next_pin_offset(PinSide::West)
             {
-                bbox.add_label("port".into(), LabelSide::West, next_offset);
+                bbox.add_pin("port".into(), PinSide::West, next_offset);
                 self.reroute = true;
                 return Selected { rect }.into();
             }
             if let Some((id, _)) = self
                 .rect_boxes
                 .iter()
-                .find(|(id, r)| r.gui_rect().contains(pos))
+                .find(|(_, r)| r.gui_rect().contains(pos))
             {
                 return Selected { rect: id }.into();
             } else {
@@ -622,7 +622,7 @@ impl Drawing {
         if response.drag_started_by(PointerButton::Primary)
             && let Some(pos) = response.interact_pointer_pos()
             && let Some(hbox) = self.rect(rect)
-            && let Some(lid) = hbox.iter_labels().find_map(|(lid, l)| {
+            && let Some(lid) = hbox.iter_pins().find_map(|(lid, _)| {
                 if hbox.control_pin_for_label(lid)?.distance(pos) <= PORT_RADIUS {
                     Some(lid)
                 } else {
@@ -630,9 +630,9 @@ impl Drawing {
                 }
             })
         {
-            return PortDragged {
+            return PinDragged {
                 rect,
-                label: lid,
+                pin: lid,
                 delta_pos: vec2(0.0, 0.0),
             }
             .into();
@@ -666,22 +666,22 @@ impl Drawing {
                     return PotentialResize { rect, mode: *mode }.into();
                 }
             }
-            for (lid, label) in bbox.iter_labels() {
-                let label_bbox = estimate_bbox_for_label(bbox.gui_rect(), label);
-                if label_bbox.contains(hover_pos) {
-                    eprintln!("Hovering over label {}", label.text);
-                    return PortLabelHovered { rect, label: lid }.into();
+            for (pid, pin) in bbox.iter_pins() {
+                let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin);
+                if pin_bbox.contains(hover_pos) {
+                    eprintln!("Hovering over label {}", pin.text);
+                    return PinLabelHovered { rect, pin: pid }.into();
                 }
 
-                let hamburger_rect = get_hamburger_rect(bbox.gui_rect(), label).expand(GRIP_SHIM);
+                let hamburger_rect = get_hamburger_rect(bbox.gui_rect(), pin).expand(GRIP_SHIM);
                 if hamburger_rect.contains(hover_pos) {
-                    eprintln!("Hovering over grip for label {}", label.text);
-                    return PortLabelGripHovered { rect, label: lid }.into();
+                    eprintln!("Hovering over grip for label {}", pin.text);
+                    return PinLabelGripHovered { rect, pin: pid }.into();
                 }
-                let pin_location = get_control_pin_bbox(bbox.gui_rect(), label);
+                let pin_location = get_control_pin_bbox(bbox.gui_rect(), pin);
                 if pin_location.contains(hover_pos) {
-                    eprintln!("Hovering over pin for label {}", label.text);
-                    return PortPinHovered { rect, label: lid }.into();
+                    eprintln!("Hovering over pin for label {}", pin.text);
+                    return PinHeadHovered { rect, pin: pid }.into();
                 }
             }
         }
@@ -704,20 +704,20 @@ impl Drawing {
         }
         PotentialResize { rect, mode }.into()
     }
-    fn handle_port_label_hovered(&self, rect: RectId, label: LabelId, response: Response) -> State {
+    fn handle_pin_label_hovered(&self, rect: RectId, label: PinId, response: Response) -> State {
         if let Some(hover_pos) = response.hover_pos()
             && let Some(bbox) = self.rect(rect)
-            && let Some(label) = bbox.label(label)
+            && let Some(label) = bbox.pin(label)
         {
-            let label_bbox = estimate_bbox_for_label(bbox.gui_rect(), label);
+            let label_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), label);
             if !label_bbox.contains(hover_pos) {
                 return Selected { rect }.into();
             }
         }
         if response.double_clicked_by(egui::PointerButton::Primary) {
-            return EditingLabelText { rect, label }.into();
+            return EditingPinText { rect, pin: label }.into();
         }
-        PortLabelHovered { rect, label }.into()
+        PinLabelHovered { rect, pin: label }.into()
     }
     fn handle_route_label_hovered(&self, route: RouteLabelHovered, response: Response) -> State {
         if let Some(hover_pos) = response.hover_pos()
@@ -732,36 +732,36 @@ impl Drawing {
         }
         route.into()
     }
-    fn handle_port_label_grip_hovered(
+    fn handle_pin_label_grip_hovered(
         &self,
         rect: RectId,
-        label: LabelId,
+        label: PinId,
         response: Response,
     ) -> State {
         if response.drag_started_by(egui::PointerButton::Primary) || response.dragged() {
             eprintln!("Starting to drag port label grip");
-            return PortDragged {
+            return PinDragged {
                 rect,
-                label,
+                pin: label,
                 delta_pos: vec2(0.0, 0.0),
             }
             .into();
         }
         if let Some(hover_pos) = response.hover_pos()
             && let Some(bbox) = self.rect(rect)
-            && let Some(label) = bbox.label(label)
+            && let Some(label) = bbox.pin(label)
         {
             let hamburger_rect = get_hamburger_rect(bbox.gui_rect(), label).expand(GRIP_SHIM);
             if !hamburger_rect.contains(hover_pos) {
                 return Selected { rect }.into();
             }
         }
-        PortLabelGripHovered { rect, label }.into()
+        PinLabelGripHovered { rect, pin: label }.into()
     }
-    fn handle_port_pin_hovered(&self, rect: RectId, label: LabelId, response: Response) -> State {
+    fn handle_pin_head_hovered(&self, rect: RectId, label: PinId, response: Response) -> State {
         if let Some(hover_pos) = response.hover_pos()
             && let Some(bbox) = self.rect(rect)
-            && let Some(label) = bbox.label(label)
+            && let Some(label) = bbox.pin(label)
         {
             let pin_location = get_control_pin_bbox(bbox.gui_rect(), label);
             if !pin_location.contains(hover_pos) {
@@ -772,13 +772,13 @@ impl Drawing {
             && let Some(pos) = response.interact_pointer_pos()
         {
             return InProgressAutoRoute {
-                start: LineAnchor { rect, label },
+                start: LineAnchor { rect, pin: label },
                 waypoints: Store::default(),
                 head: pos,
             }
             .into();
         }
-        PortPinHovered { rect, label }.into()
+        PinHeadHovered { rect, pin: label }.into()
     }
     fn handle_route_corner_hovered(
         &mut self,
@@ -1068,11 +1068,11 @@ impl Drawing {
         }
         EditingName { rect }.into()
     }
-    fn handle_editing_label_text(&self, rect: RectId, label: LabelId, response: Response) -> State {
+    fn handle_editing_label_text(&self, rect: RectId, label: PinId, response: Response) -> State {
         if response.clicked() {
             return Selected { rect }.into();
         }
-        EditingLabelText { rect, label }.into()
+        EditingPinText { rect, pin: label }.into()
     }
     fn handle_editing_route_label_text(
         &mut self,
@@ -1116,10 +1116,10 @@ impl Drawing {
         }
         State::RouteEdgeDragged(target)
     }
-    fn handle_port_dragged(
+    fn handle_pin_dragged(
         &mut self,
         rect: RectId,
-        label: LabelId,
+        pin: PinId,
         delta_pos: Vec2,
         response: Response,
     ) -> State {
@@ -1127,32 +1127,32 @@ impl Drawing {
             && let Some(rbox) = self.rect_mut(rect)
         {
             let center_line = rbox.gui_rect().center().x;
-            if let Some(label) = rbox.label_mut(label) {
+            if let Some(pin) = rbox.pins_mut(pin) {
                 if pos.x < center_line {
-                    label.side = LabelSide::West;
+                    pin.side = PinSide::West;
                 } else {
-                    label.side = LabelSide::East;
+                    pin.side = PinSide::East;
                 }
             }
         }
         if response.dragged_by(egui::PointerButton::Primary) {
             let delta = response.drag_delta();
-            return PortDragged {
+            return PinDragged {
                 rect,
-                label,
+                pin,
                 delta_pos: delta_pos + delta,
             }
             .into();
         } else if response.drag_stopped_by(egui::PointerButton::Primary) || !response.dragged() {
             if let Some(rbox) = self.rect_mut(rect) {
-                rbox.update_label_offset(label, delta_pos.y);
+                rbox.update_pin_offset(pin, delta_pos.y);
             }
             self.reroute = true;
             return Selected { rect }.into();
         }
-        PortDragged {
+        PinDragged {
             rect,
-            label,
+            pin,
             delta_pos,
         }
         .into()
@@ -1260,14 +1260,14 @@ impl Drawing {
                 self.handle_potential_resize(rect, mode, response)
             }
 
-            State::PortLabelHovered(PortLabelHovered { rect, label }) => {
-                self.handle_port_label_hovered(rect, label, response)
+            State::PinLabelHovered(PinLabelHovered { rect, pin: label }) => {
+                self.handle_pin_label_hovered(rect, label, response)
             }
-            State::PortLabelGripHovered(PortLabelGripHovered { rect, label }) => {
-                self.handle_port_label_grip_hovered(rect, label, response)
+            State::PinLabelGripHovered(PinLabelGripHovered { rect, pin: label }) => {
+                self.handle_pin_label_grip_hovered(rect, label, response)
             }
-            State::PortPinHovered(PortPinHovered { rect, label }) => {
-                self.handle_port_pin_hovered(rect, label, response)
+            State::PinHeadHovered(PinHeadHovered { rect, pin: label }) => {
+                self.handle_pin_head_hovered(rect, label, response)
             }
             State::ResizingRect(ResizingRect {
                 rect,
@@ -1287,19 +1287,19 @@ impl Drawing {
             }
             State::Panning => self.handle_panning(response),
             State::EditingName(EditingName { rect }) => self.handle_editing_name(rect, response),
-            State::EditingLabelText(EditingLabelText { rect, label }) => {
+            State::EditingLabelText(EditingPinText { rect, pin: label }) => {
                 self.handle_editing_label_text(rect, label, response)
             }
             State::EditingRouteLabelText(inner) => {
                 self.handle_editing_route_label_text(inner, response)
             }
-            State::PortDragged(PortDragged {
+            State::PinDragged(PinDragged {
                 rect,
-                label,
+                pin,
                 delta_pos,
             }) => {
                 route_fixup = true;
-                self.handle_port_dragged(rect, label, delta_pos, response)
+                self.handle_pin_dragged(rect, pin, delta_pos, response)
             }
             State::InProgressAutoRoute(inner) => {
                 route_fixup = true;
@@ -1321,13 +1321,13 @@ impl Drawing {
                 continue;
             };
             builder.add_block(effective_rect.left_top(), effective_rect.right_bottom());
-            for (lid, label) in rect_box.iter_labels() {
-                let Some(anchor_pos) = rect_box.anchor_point_with_rect(effective_rect, lid) else {
+            for (pid, pin) in rect_box.iter_pins() {
+                let Some(anchor_pos) = rect_box.anchor_point_with_rect(effective_rect, pid) else {
                     continue;
                 };
-                let anchor_pos = match label.side {
-                    LabelSide::East => anchor_pos + vec2(GRID_SIZE, 0.0),
-                    LabelSide::West => anchor_pos - vec2(GRID_SIZE, 0.0),
+                let anchor_pos = match pin.side {
+                    PinSide::East => anchor_pos + vec2(GRID_SIZE, 0.0),
+                    PinSide::West => anchor_pos - vec2(GRID_SIZE, 0.0),
                 };
                 builder.add_h_channel(anchor_pos, COST_ZERO);
             }
@@ -1385,44 +1385,36 @@ pub fn demo_drawing() -> Drawing {
     let size = vec2(200.0, 200.0);
     let box1_id = drawing.add_rect_box(origin_1, origin_1 + size);
     let box1 = drawing.rect_mut(box1_id).unwrap();
-    let box1_port1 = box1.add_label(
+    let box1_pin1 = box1.add_pin(
         "i.1.write_logic".to_string(),
-        LabelSide::West,
+        PinSide::West,
         GRID_SIZE * 1.0,
     );
     let box1_anchor1 = LineAnchor {
         rect: box1_id,
-        label: box1_port1,
+        pin: box1_pin1,
     };
-    let box1_port2 = box1.add_label(
+    let box1_pin2 = box1.add_pin(
         "i.0.write_logic".to_string(),
-        LabelSide::West,
+        PinSide::West,
         GRID_SIZE * 2.0,
     );
     let box1_anchor2 = LineAnchor {
         rect: box1_id,
-        label: box1_port2,
+        pin: box1_pin2,
     };
     let origin_2 = pos2(0.0, 0.0);
     let box2_id = drawing.add_rect_box(origin_2, origin_2 + size);
     let box2 = drawing.rect_mut(box2_id).unwrap();
-    let box2_port1 = box2.add_label(
-        "o.1.read_logic".to_string(),
-        LabelSide::East,
-        GRID_SIZE * 1.0,
-    );
+    let box2_port1 = box2.add_pin("o.1.read_logic".to_string(), PinSide::East, GRID_SIZE * 1.0);
     let box2_anchor1 = LineAnchor {
         rect: box2_id,
-        label: box2_port1,
+        pin: box2_port1,
     };
-    let box2_port2 = box2.add_label(
-        "o.0.read_logic".to_string(),
-        LabelSide::East,
-        GRID_SIZE * 2.0,
-    );
+    let box2_pin2 = box2.add_pin("o.0.read_logic".to_string(), PinSide::East, GRID_SIZE * 2.0);
     let box2_anchor2 = LineAnchor {
         rect: box2_id,
-        label: box2_port2,
+        pin: box2_pin2,
     };
     // Create a route
     /*
