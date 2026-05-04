@@ -26,7 +26,6 @@ use crate::{
 
 const GRIP_SHIM: f32 = 4.0;
 
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct LineAnchor {
     pub rect: RectId,
@@ -63,7 +62,8 @@ impl Drawing {
         ))
     }
     pub fn add_port_box(&mut self, pin_name: String, side: PinSide, inner: Rect) -> RectId {
-        self.rect_boxes.insert(RectBox::new_port(pin_name, side, inner))
+        self.rect_boxes
+            .insert(RectBox::new_port(pin_name, side, inner))
     }
     pub fn routing_box(&self, id: RectId) -> Option<Rect> {
         let rect = self.rect(id)?.gui_rect();
@@ -596,7 +596,7 @@ impl Drawing {
             && let Some(pos) = response.interact_pointer_pos()
         {
             if let Some(bbox) = self.rect_mut(rect)
-                && let Some(pin) = bbox.control_pin_location_east()
+                && let Some(pin) = bbox.add_pin_button_east()
                 && pos.distance(pin) <= PORT_RADIUS
                 && let Some(next_offset) = bbox.next_pin_offset(PinSide::East)
             {
@@ -605,7 +605,7 @@ impl Drawing {
                 return Selected { rect }.into();
             }
             if let Some(bbox) = self.rect_mut(rect)
-                && let Some(pin) = bbox.control_pin_location_west()
+                && let Some(pin) = bbox.add_pin_button_west()
                 && pos.distance(pin) <= PORT_RADIUS
                 && let Some(next_offset) = bbox.next_pin_offset(PinSide::West)
             {

@@ -6,5 +6,6 @@ pub mod linear_distance;
 pub mod pin;
 pub mod rect_box;
 pub mod segmentkind;
+pub mod shape;
 pub mod waypoint;
 pub mod wire_label;

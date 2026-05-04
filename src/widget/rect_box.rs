@@ -150,14 +150,14 @@ impl RectBox {
             }
         })
     }
-    pub fn control_pin_location_east(&self) -> Option<Pos2> {
+    pub fn add_pin_button_east(&self) -> Option<Pos2> {
         if self.is_port() {
             return None;
         }
         let offset = self.next_pin_offset(PinSide::East)?;
         Some(self.inner.right_top() + vec2(GRID_SIZE, GRID_SIZE + offset))
     }
-    pub fn control_pin_location_west(&self) -> Option<Pos2> {
+    pub fn add_pin_button_west(&self) -> Option<Pos2> {
         if self.is_port() {
             return None;
         }
@@ -176,10 +176,7 @@ impl RectBox {
                 rect.right() + GRID_SIZE,
                 rect.top() + GRID_SIZE + pin.offset,
             ),
-            PinSide::West => pos2(
-                rect.left() - GRID_SIZE,
-                rect.top() + GRID_SIZE + pin.offset,
-            ),
+            PinSide::West => pos2(rect.left() - GRID_SIZE, rect.top() + GRID_SIZE + pin.offset),
         })
     }
     pub fn anchor_point(&self, id: PinId) -> Option<Pos2> {

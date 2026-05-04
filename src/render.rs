@@ -61,9 +61,17 @@ fn rounded_pentagon(vertices: &[Pos2], radius: f32, fill: Color32, stroke: Strok
     }));
 }
 
-fn draw_box_outline(bbox: Rect, is_port: bool, side: PinSide, fill: Color32, stroke: Stroke, ui: &mut Ui) {
+fn draw_box_outline(
+    bbox: Rect,
+    is_port: bool,
+    side: PinSide,
+    fill: Color32,
+    stroke: Stroke,
+    ui: &mut Ui,
+) {
     if is_port {
-        let render_rect = Rect::from_center_size(bbox.center(), vec2(bbox.width(), PORT_RENDER_HEIGHT));
+        let render_rect =
+            Rect::from_center_size(bbox.center(), vec2(bbox.width(), PORT_RENDER_HEIGHT));
         let center_y = render_rect.center().y;
         let vertices = match side {
             PinSide::East => [
@@ -109,8 +117,22 @@ pub fn draw_resizing_rect(rect: &RectBox, ui: &mut Ui, mode: ResizeMode, delta: 
     let predicted_rect = grid_rect(resized_rect);
     let is_port = rect.is_port();
     let side = port_pin_side(rect);
-    draw_box_outline(predicted_rect, is_port, side, Color32::TRANSPARENT, Stroke::new(1.0, Color32::DARK_GRAY), ui);
-    draw_box_outline(resized_rect, is_port, side, Color32::LIGHT_GRAY, Stroke::new(2.0, Color32::DARK_RED), ui);
+    draw_box_outline(
+        predicted_rect,
+        is_port,
+        side,
+        Color32::TRANSPARENT,
+        Stroke::new(1.0, Color32::DARK_GRAY),
+        ui,
+    );
+    draw_box_outline(
+        resized_rect,
+        is_port,
+        side,
+        Color32::LIGHT_GRAY,
+        Stroke::new(2.0, Color32::DARK_RED),
+        ui,
+    );
     if is_port {
         draw_port_text_in_rect(rect, resized_rect, ui);
     } else {
@@ -135,8 +157,22 @@ pub fn draw_moving_rect(rect: &RectBox, ui: &mut Ui, delta: Vec2) {
     let predicted_rect = grid_rect(shifted_rect);
     let is_port = rect.is_port();
     let side = port_pin_side(rect);
-    draw_box_outline(predicted_rect, is_port, side, Color32::TRANSPARENT, Stroke::new(1.0, Color32::DARK_GRAY), ui);
-    draw_box_outline(shifted_rect, is_port, side, Color32::LIGHT_GRAY, Stroke::new(2.0, Color32::DARK_RED), ui);
+    draw_box_outline(
+        predicted_rect,
+        is_port,
+        side,
+        Color32::TRANSPARENT,
+        Stroke::new(1.0, Color32::DARK_GRAY),
+        ui,
+    );
+    draw_box_outline(
+        shifted_rect,
+        is_port,
+        side,
+        Color32::LIGHT_GRAY,
+        Stroke::new(2.0, Color32::DARK_RED),
+        ui,
+    );
     if is_port {
         draw_port_text_in_rect(rect, shifted_rect, ui);
     } else {
@@ -170,7 +206,14 @@ fn render_pins_with_box<'a>(
 fn render_frame(rect: &RectBox, ui: &mut Ui) {
     let egui_box = rect.gui_rect();
     let side = port_pin_side(rect);
-    draw_box_outline(egui_box, rect.is_port(), side, Color32::LIGHT_GRAY, Stroke::new(1.0, Color32::BLUE), ui);
+    draw_box_outline(
+        egui_box,
+        rect.is_port(),
+        side,
+        Color32::LIGHT_GRAY,
+        Stroke::new(1.0, Color32::BLUE),
+        ui,
+    );
     if !rect.is_port() {
         ui.painter().text(
             egui_box.center_top() + vec2(0.0, SHIM),
@@ -310,7 +353,14 @@ pub fn draw_dragged_pin(rrect: &RectBox, pin: PinId, delta_pos: Vec2, ui: &mut U
 pub fn draw_control_frame(rrect: &RectBox, ui: &mut Ui) -> Option<()> {
     let bbox = rrect.gui_rect();
     let side = port_pin_side(rrect);
-    draw_box_outline(bbox, rrect.is_port(), side, Color32::TRANSPARENT, Stroke::new(0.5, Color32::DARK_RED), ui);
+    draw_box_outline(
+        bbox,
+        rrect.is_port(),
+        side,
+        Color32::TRANSPARENT,
+        Stroke::new(0.5, Color32::DARK_RED),
+        ui,
+    );
     for mode in rrect.resize_modes() {
         let pos = control_corner(&bbox, *mode);
         ui.painter().rect(
@@ -321,30 +371,27 @@ pub fn draw_control_frame(rrect: &RectBox, ui: &mut Ui) -> Option<()> {
             StrokeKind::Middle,
         );
     }
-    [
-        rrect.control_pin_location_east(),
-        rrect.control_pin_location_west(),
-    ]
-    .iter()
-    .flatten()
-    .for_each(|&pin_pos| {
-        ui.painter()
-            .circle(pin_pos, PORT_RADIUS, Color32::WHITE, (0.5, Color32::BLACK));
-        ui.painter().line_segment(
-            [
-                pin_pos + vec2(-PORT_RADIUS / 2.0, 0.0),
-                pin_pos + vec2(PORT_RADIUS / 2.0, 0.0),
-            ],
-            (1.0, Color32::BLACK),
-        );
-        ui.painter().line_segment(
-            [
-                pin_pos + vec2(0.0, -PORT_RADIUS / 2.0),
-                pin_pos + vec2(0.0, PORT_RADIUS / 2.0),
-            ],
-            (1.0, Color32::BLACK),
-        );
-    });
+    [rrect.add_pin_button_east(), rrect.add_pin_button_west()]
+        .iter()
+        .flatten()
+        .for_each(|&pin_pos| {
+            ui.painter()
+                .circle(pin_pos, PORT_RADIUS, Color32::WHITE, (0.5, Color32::BLACK));
+            ui.painter().line_segment(
+                [
+                    pin_pos + vec2(-PORT_RADIUS / 2.0, 0.0),
+                    pin_pos + vec2(PORT_RADIUS / 2.0, 0.0),
+                ],
+                (1.0, Color32::BLACK),
+            );
+            ui.painter().line_segment(
+                [
+                    pin_pos + vec2(0.0, -PORT_RADIUS / 2.0),
+                    pin_pos + vec2(0.0, PORT_RADIUS / 2.0),
+                ],
+                (1.0, Color32::BLACK),
+            );
+        });
     Some(())
 }
 
