@@ -1,6 +1,9 @@
 use std::vec;
 
-use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, TextEdit, Ui, Vec2, pos2, vec2};
+use egui::{
+    Color32, Pos2, Rect, Shape, Stroke, StrokeKind, TextEdit, Ui, Vec2, epaint::PathShape,
+    epaint::PathStroke, pos2, vec2,
+};
 
 use crate::{
     grid::*,
@@ -8,7 +11,7 @@ use crate::{
     store::{PinId, RectId},
     widget::{
         pin::{Pin, PinSide},
-        rect_box::{RectBox, resize_rect},
+        rect_box::{RectBox, control_corner, resize_rect},
     },
 };
 
@@ -18,68 +21,139 @@ pub enum GripState {
     Drawn,
 }
 
+fn port_pin_side(rect: &RectBox) -> PinSide {
+    rect.iter_pins()
+        .next()
+        .map(|(_, p)| p.side)
+        .unwrap_or(PinSide::East)
+}
+
+fn rounded_pentagon(vertices: &[Pos2], radius: f32, fill: Color32, stroke: Stroke, ui: &mut Ui) {
+    let n = vertices.len();
+    let mut points = Vec::with_capacity(n * 5);
+    for i in 0..n {
+        let prev = vertices[(i + n - 1) % n];
+        let curr = vertices[i];
+        let next = vertices[(i + 1) % n];
+        let dir_in = (curr - prev).normalized();
+        let dir_out = (next - curr).normalized();
+        let r = radius
+            .min((curr - prev).length() * 0.5)
+            .min((next - curr).length() * 0.5);
+        let p0 = curr - dir_in * r;
+        let p2 = curr + dir_out * r;
+        points.push(p0);
+        // Quadratic Bézier arc with curr as control point, 4 subdivisions
+        for s in 1..=4_u8 {
+            let t = s as f32 / 4.0;
+            let it = 1.0 - t;
+            points.push(pos2(
+                it * it * p0.x + 2.0 * it * t * curr.x + t * t * p2.x,
+                it * it * p0.y + 2.0 * it * t * curr.y + t * t * p2.y,
+            ));
+        }
+    }
+    ui.painter().add(Shape::Path(PathShape {
+        points,
+        closed: true,
+        fill,
+        stroke: PathStroke::new(stroke.width, stroke.color),
+    }));
+}
+
+fn draw_box_outline(bbox: Rect, is_port: bool, side: PinSide, fill: Color32, stroke: Stroke, ui: &mut Ui) {
+    if is_port {
+        let render_rect = Rect::from_center_size(bbox.center(), vec2(bbox.width(), PORT_RENDER_HEIGHT));
+        let center_y = render_rect.center().y;
+        let vertices = match side {
+            PinSide::East => [
+                render_rect.left_top(),
+                render_rect.right_top(),
+                pos2(render_rect.right() + GRID_SIZE, center_y),
+                render_rect.right_bottom(),
+                render_rect.left_bottom(),
+            ],
+            PinSide::West => [
+                render_rect.right_top(),
+                render_rect.left_top(),
+                pos2(render_rect.left() - GRID_SIZE, center_y),
+                render_rect.left_bottom(),
+                render_rect.right_bottom(),
+            ],
+        };
+        rounded_pentagon(&vertices, 3.0, fill, stroke, ui);
+    } else {
+        ui.painter()
+            .rect(bbox, 3.0, fill, stroke, StrokeKind::Middle);
+    }
+}
+
+fn draw_port_text_in_rect(rect: &RectBox, bbox: Rect, ui: &mut Ui) {
+    if let Some((_, pin)) = rect.iter_pins().next() {
+        ui.painter().text(
+            bbox.center(),
+            egui::Align2::CENTER_CENTER,
+            &pin.text,
+            egui::FontId::monospace(PORT_TEXT_SIZE),
+            Color32::BLACK,
+        );
+    }
+}
+
+fn draw_port_text(rect: &RectBox, ui: &mut Ui) {
+    draw_port_text_in_rect(rect, rect.gui_rect(), ui);
+}
+
 pub fn draw_resizing_rect(rect: &RectBox, ui: &mut Ui, mode: ResizeMode, delta: Vec2) {
     let resized_rect = resize_rect(&rect.gui_rect(), mode, delta);
     let predicted_rect = grid_rect(resized_rect);
-    ui.painter().rect(
-        predicted_rect,
-        3.0,
-        Color32::TRANSPARENT,
-        (1.0, Color32::DARK_GRAY),
-        StrokeKind::Middle,
-    );
-    ui.painter().rect(
-        resized_rect,
-        3.0,
-        Color32::LIGHT_GRAY,
-        (2.0, Color32::DARK_RED),
-        StrokeKind::Middle,
-    );
-    ui.painter().text(
-        resized_rect.center_top() + vec2(0.0, SHIM),
-        egui::Align2::CENTER_TOP,
-        rect.name(),
-        egui::FontId::monospace(TITLE_TEXT_SIZE),
-        Color32::BLACK,
-    );
-    render_pins_with_box(
-        rect.iter_pins().map(|(_, pin)| pin),
-        resized_rect,
-        GripState::Hidden,
-        ui,
-    );
+    let is_port = rect.is_port();
+    let side = port_pin_side(rect);
+    draw_box_outline(predicted_rect, is_port, side, Color32::TRANSPARENT, Stroke::new(1.0, Color32::DARK_GRAY), ui);
+    draw_box_outline(resized_rect, is_port, side, Color32::LIGHT_GRAY, Stroke::new(2.0, Color32::DARK_RED), ui);
+    if is_port {
+        draw_port_text_in_rect(rect, resized_rect, ui);
+    } else {
+        ui.painter().text(
+            resized_rect.center_top() + vec2(0.0, SHIM),
+            egui::Align2::CENTER_TOP,
+            rect.name(),
+            egui::FontId::monospace(TITLE_TEXT_SIZE),
+            Color32::BLACK,
+        );
+        render_pins_with_box(
+            rect.iter_pins().map(|(_, pin)| pin),
+            resized_rect,
+            GripState::Hidden,
+            ui,
+        );
+    }
 }
 
 pub fn draw_moving_rect(rect: &RectBox, ui: &mut Ui, delta: Vec2) {
     let shifted_rect = rect.gui_rect().translate(delta);
     let predicted_rect = grid_rect(shifted_rect);
-    ui.painter().rect(
-        predicted_rect,
-        3.0,
-        Color32::TRANSPARENT,
-        (1.0, Color32::DARK_GRAY),
-        StrokeKind::Middle,
-    );
-    ui.painter().rect(
-        shifted_rect,
-        3.0,
-        Color32::LIGHT_GRAY,
-        (2.0, Color32::DARK_RED),
-        StrokeKind::Middle,
-    );
-    ui.painter().text(
-        shifted_rect.center_top() + vec2(0.0, SHIM),
-        egui::Align2::CENTER_TOP,
-        rect.name(),
-        egui::FontId::monospace(TITLE_TEXT_SIZE),
-        Color32::BLACK,
-    );
-    render_pins_with_box(
-        rect.iter_pins().map(|(_, pin)| pin),
-        shifted_rect,
-        GripState::Hidden,
-        ui,
-    );
+    let is_port = rect.is_port();
+    let side = port_pin_side(rect);
+    draw_box_outline(predicted_rect, is_port, side, Color32::TRANSPARENT, Stroke::new(1.0, Color32::DARK_GRAY), ui);
+    draw_box_outline(shifted_rect, is_port, side, Color32::LIGHT_GRAY, Stroke::new(2.0, Color32::DARK_RED), ui);
+    if is_port {
+        draw_port_text_in_rect(rect, shifted_rect, ui);
+    } else {
+        ui.painter().text(
+            shifted_rect.center_top() + vec2(0.0, SHIM),
+            egui::Align2::CENTER_TOP,
+            rect.name(),
+            egui::FontId::monospace(TITLE_TEXT_SIZE),
+            Color32::BLACK,
+        );
+        render_pins_with_box(
+            rect.iter_pins().map(|(_, pin)| pin),
+            shifted_rect,
+            GripState::Hidden,
+            ui,
+        );
+    }
 }
 
 fn render_pins_with_box<'a>(
@@ -95,30 +169,31 @@ fn render_pins_with_box<'a>(
 
 fn render_frame(rect: &RectBox, ui: &mut Ui) {
     let egui_box = rect.gui_rect();
-    ui.painter().rect(
-        egui_box,
-        3.0,
-        Color32::LIGHT_GRAY,
-        (1.0, Color32::BLUE),
-        StrokeKind::Middle,
-    );
-    ui.painter().text(
-        egui_box.center_top() + vec2(0.0, SHIM),
-        egui::Align2::CENTER_TOP,
-        rect.name(),
-        egui::FontId::monospace(TITLE_TEXT_SIZE),
-        Color32::BLACK,
-    );
+    let side = port_pin_side(rect);
+    draw_box_outline(egui_box, rect.is_port(), side, Color32::LIGHT_GRAY, Stroke::new(1.0, Color32::BLUE), ui);
+    if !rect.is_port() {
+        ui.painter().text(
+            egui_box.center_top() + vec2(0.0, SHIM),
+            egui::Align2::CENTER_TOP,
+            rect.name(),
+            egui::FontId::monospace(TITLE_TEXT_SIZE),
+            Color32::BLACK,
+        );
+    }
 }
 
 fn render_with_grip_state(rect: &RectBox, grip_state: GripState, ui: &mut Ui) {
     render_frame(rect, ui);
-    render_pins_with_box(
-        rect.iter_pins().map(|(_, pin)| pin),
-        rect.gui_rect(),
-        grip_state,
-        ui,
-    );
+    if rect.is_port() {
+        draw_port_text(rect, ui);
+    } else {
+        render_pins_with_box(
+            rect.iter_pins().map(|(_, pin)| pin),
+            rect.gui_rect(),
+            grip_state,
+            ui,
+        );
+    }
 }
 
 // Draw
@@ -234,21 +309,10 @@ pub fn draw_dragged_pin(rrect: &RectBox, pin: PinId, delta_pos: Vec2, ui: &mut U
 
 pub fn draw_control_frame(rrect: &RectBox, ui: &mut Ui) -> Option<()> {
     let bbox = rrect.gui_rect();
-    ui.painter().rect(
-        bbox,
-        0.0,
-        Color32::TRANSPARENT,
-        (0.5, Color32::DARK_RED),
-        StrokeKind::Middle,
-    );
-    for pos in [
-        bbox.left_top(),
-        bbox.right_top(),
-        bbox.left_bottom(),
-        bbox.right_bottom(),
-        bbox.center_top(),
-        bbox.center_bottom(),
-    ] {
+    let side = port_pin_side(rrect);
+    draw_box_outline(bbox, rrect.is_port(), side, Color32::TRANSPARENT, Stroke::new(0.5, Color32::DARK_RED), ui);
+    for mode in rrect.resize_modes() {
+        let pos = control_corner(&bbox, *mode);
         ui.painter().rect(
             Rect::from_center_size(pos, vec2(CONTROL_HANDLE_SIZE, CONTROL_HANDLE_SIZE)),
             0.0,
@@ -339,24 +403,36 @@ pub fn render_rect_box(
             pin,
             delta_pos,
         }) if id == *rect => {
-            render_frame(target, ui);
-            render_pins_with_box(
-                target
-                    .iter_pins()
-                    .filter_map(|(lid, l)| if lid != *pin { Some(l) } else { None }),
-                target.gui_rect(),
-                GripState::Drawn,
-                ui,
-            );
-            draw_control_frame(target, ui);
-            ui.painter().line_segment(
-                [
-                    target.gui_rect().center_top(),
-                    target.gui_rect().center_bottom(),
-                ],
-                (2.0, Color32::DARK_GRAY.gamma_multiply(0.3)),
-            );
-            draw_dragged_pin(target, *pin, *delta_pos, ui);
+            if target.is_port() {
+                render_frame(target, ui);
+                draw_port_text(target, ui);
+                ui.painter().line_segment(
+                    [
+                        target.gui_rect().center_top(),
+                        target.gui_rect().center_bottom(),
+                    ],
+                    (2.0, Color32::DARK_GRAY.gamma_multiply(0.3)),
+                );
+            } else {
+                render_frame(target, ui);
+                render_pins_with_box(
+                    target
+                        .iter_pins()
+                        .filter_map(|(lid, l)| if lid != *pin { Some(l) } else { None }),
+                    target.gui_rect(),
+                    GripState::Drawn,
+                    ui,
+                );
+                draw_control_frame(target, ui);
+                ui.painter().line_segment(
+                    [
+                        target.gui_rect().center_top(),
+                        target.gui_rect().center_bottom(),
+                    ],
+                    (2.0, Color32::DARK_GRAY.gamma_multiply(0.3)),
+                );
+                draw_dragged_pin(target, *pin, *delta_pos, ui);
+            }
         }
         State::EditingName(EditingName { rect }) if id == *rect => {
             render_selected(target, ui);
@@ -379,13 +455,22 @@ pub fn render_rect_box(
         State::EditingPinText(EditingPinText { rect, pin }) if id == *rect => {
             render_selected(target, ui);
             let target_inner = target.gui_rect();
+            let is_port = target.is_port();
             let Some(pin_ref) = target.pins_mut(*pin) else {
                 return FocusResult::KeptFocus;
             };
-            let editor_width =
-                ((pin_ref.text.len() as f32 * PORT_TEXT_SIZE * 0.6 + 10.0) / 2.0).max(20.0);
-            let editor_position =
-                get_hamburger_rect(target_inner, pin_ref).expand2(vec2(editor_width, 0.0));
+            let editor_position = if is_port {
+                let text_width =
+                    (pin_ref.text.len() as f32 * PORT_TEXT_SIZE * 0.6 + 20.0).max(40.0);
+                Rect::from_center_size(
+                    target_inner.center(),
+                    vec2(text_width, PORT_TEXT_SIZE + 4.0),
+                )
+            } else {
+                let editor_width =
+                    ((pin_ref.text.len() as f32 * PORT_TEXT_SIZE * 0.6 + 10.0) / 2.0).max(20.0);
+                get_hamburger_rect(target_inner, pin_ref).expand2(vec2(editor_width, 0.0))
+            };
             let response = ui.place(
                 editor_position,
                 TextEdit::singleline(&mut pin_ref.text)

@@ -11,6 +11,8 @@ pub const ROUTE_TEXT_SIZE: f32 = GRID_SIZE * 0.6;
 pub const CONTROL_HANDLE_SIZE: f32 = GRID_SIZE * 0.3;
 pub const GRIP_SIZE: f32 = GRID_SIZE * 0.6;
 pub const MIN_TEXT_EDGE_LENGTH: f32 = GRID_SIZE * 4.0;
+pub const PORT_HEIGHT: f32 = GRID_SIZE * 2.0;
+pub const PORT_RENDER_HEIGHT: f32 = GRID_SIZE * 1.3;
 
 pub fn snap_to_grid(pos: Pos2) -> Pos2 {
     Pos2::new(round_to_grid(pos.x), round_to_grid(pos.y))

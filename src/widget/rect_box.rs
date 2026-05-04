@@ -1,16 +1,17 @@
 use egui::{Pos2, Rect, Vec2, pos2, vec2};
 
 use crate::{
-    grid::{GRID_SIZE, grid_rect, round_to_grid, snap},
+    grid::{GRID_SIZE, PORT_HEIGHT, grid_rect, round_to_grid, snap},
     state::ResizeMode,
     store::*,
-    widget::pin::{Pin, PinSide},
+    widget::pin::{BoxKind, Pin, PinSide},
 };
 
 pub struct RectBox {
     name: String,
     inner: Rect,
     pins: Store<PinId, Pin>,
+    kind: BoxKind,
 }
 
 pub fn resize_rect(rect: &Rect, mode: ResizeMode, delta: Vec2) -> Rect {
@@ -55,14 +56,55 @@ impl RectBox {
     pub fn name_mut(&mut self) -> &mut String {
         &mut self.name
     }
+    pub fn kind(&self) -> BoxKind {
+        self.kind
+    }
+    pub fn is_port(&self) -> bool {
+        self.kind == BoxKind::Port
+    }
+    pub fn resize_modes(&self) -> &'static [ResizeMode] {
+        if self.is_port() {
+            &[
+                ResizeMode::LeftTop,
+                ResizeMode::RightTop,
+                ResizeMode::LeftBottom,
+                ResizeMode::RightBottom,
+            ]
+        } else {
+            &[
+                ResizeMode::LeftTop,
+                ResizeMode::RightTop,
+                ResizeMode::LeftBottom,
+                ResizeMode::RightBottom,
+                ResizeMode::CenterTop,
+                ResizeMode::CenterBottom,
+            ]
+        }
+    }
     pub fn new(name: String, inner: Rect) -> Self {
         Self {
             name,
             inner: snap(inner),
             pins: Store::default(),
+            kind: BoxKind::Normal,
         }
     }
+    pub fn new_port(pin_name: String, side: PinSide, inner: Rect) -> Self {
+        let snapped = snap(inner);
+        let clamped = Rect::from_min_size(snapped.min, vec2(snapped.width(), PORT_HEIGHT));
+        let mut result = Self {
+            name: String::new(),
+            inner: clamped,
+            pins: Store::default(),
+            kind: BoxKind::Port,
+        };
+        result.add_pin(pin_name, side, 0.0);
+        result
+    }
     pub fn is_pin_offset_available(&self, side: PinSide, offset: f32) -> bool {
+        if self.is_port() {
+            return false;
+        }
         if offset < 0.0 || offset > self.inner.height() {
             return false;
         }
@@ -72,6 +114,9 @@ impl RectBox {
             .all(|l| (l.offset - offset).abs() >= GRID_SIZE * 0.2)
     }
     pub fn update_pin_offset(&mut self, pin_id: PinId, delta_y: f32) {
+        if self.is_port() {
+            return;
+        }
         let Some(pin_ref) = self.pin(pin_id) else {
             return;
         };
@@ -85,6 +130,9 @@ impl RectBox {
         pin_ref.offset = pin_offset;
     }
     pub fn next_pin_offset(&self, side: PinSide) -> Option<f32> {
+        if self.is_port() {
+            return None;
+        }
         let max_pos = (self.inner.height() / GRID_SIZE) as i32 - 1;
         if max_pos <= 0 {
             return None;
@@ -103,12 +151,16 @@ impl RectBox {
         })
     }
     pub fn control_pin_location_east(&self) -> Option<Pos2> {
-        // Find the first free offset
-        // We want to check 0, -1, 1, -2, 2,..
+        if self.is_port() {
+            return None;
+        }
         let offset = self.next_pin_offset(PinSide::East)?;
         Some(self.inner.right_top() + vec2(GRID_SIZE, GRID_SIZE + offset))
     }
     pub fn control_pin_location_west(&self) -> Option<Pos2> {
+        if self.is_port() {
+            return None;
+        }
         let offset = self.next_pin_offset(PinSide::West)?;
         Some(self.inner.left_top() + vec2(-GRID_SIZE, GRID_SIZE + offset))
     }
