@@ -6,7 +6,7 @@ use crate::{
     store::PinId,
     widget::{
         pin::{Pin, PinSide},
-        shape::{PinShape, Shape},
+        shape::BaseShape,
     },
 };
 
@@ -37,29 +37,26 @@ impl Port {
             },
         }
     }
+    pub fn port_side(&self) -> PinSide {
+        self.pin.side
+    }
 }
 
-impl Shape for Port {
+impl BaseShape for Port {
     fn name(&self) -> &str {
         &self.pin.text
     }
     fn name_mut(&mut self) -> &mut String {
         &mut self.pin.text
     }
-    fn resize_modes(&self) -> Box<dyn Iterator<Item = ResizeMode> + '_> {
-        Box::new(PORT_RESIZE_MODES.iter().copied())
+    fn resize_modes(&self) -> &'static [ResizeMode] {
+        PORT_RESIZE_MODES
     }
     fn gui_rect(&self) -> Rect {
         self.inner
     }
     fn gui_rect_mut(&mut self) -> &mut Rect {
         &mut self.inner
-    }
-    fn as_pin_shape(&self) -> Option<&dyn PinShape> {
-        Some(self)
-    }
-    fn as_pin_shape_mut(&mut self) -> Option<&mut dyn PinShape> {
-        Some(self)
     }
     fn constrain_resize_delta(&self, mut delta: Vec2) -> Vec2 {
         delta.y = 0.0;
@@ -71,20 +68,14 @@ impl Shape for Port {
             vec2(new_rect.width(), PORT_HEIGHT),
         );
     }
-    fn port_side(&self) -> Option<PinSide> {
-        Some(self.pin.side)
-    }
-}
-
-impl PinShape for Port {
     fn pin(&self, id: PinId) -> Option<&Pin> {
         (id == PORT_PIN_ID).then_some(&self.pin)
     }
     fn pins_mut(&mut self, id: PinId) -> Option<&mut Pin> {
         (id == PORT_PIN_ID).then_some(&mut self.pin)
     }
-    fn iter_pins(&self) -> Box<dyn Iterator<Item = (PinId, &Pin)> + '_> {
-        Box::new(std::iter::once((PORT_PIN_ID, &self.pin)))
+    fn iter_pins(&self, mut f: impl FnMut(PinId, &Pin)) {
+        f(PORT_PIN_ID, &self.pin);
     }
     fn pin_head_pos(&self, id: PinId) -> Option<Pos2> {
         if id != PORT_PIN_ID {

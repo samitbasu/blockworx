@@ -6,7 +6,7 @@ use crate::{
     store::*,
     widget::{
         pin::{Pin, PinSide},
-        shape::{PinShape, Shape},
+        shape::BaseShape,
     },
 };
 
@@ -120,15 +120,15 @@ impl Block {
     }
 }
 
-impl Shape for Block {
+impl BaseShape for Block {
     fn name(&self) -> &str {
         &self.name
     }
     fn name_mut(&mut self) -> &mut String {
         &mut self.name
     }
-    fn resize_modes(&self) -> Box<dyn Iterator<Item = ResizeMode> + '_> {
-        Box::new(NORMAL_RESIZE_MODES.iter().copied())
+    fn resize_modes(&self) -> &'static [ResizeMode] {
+        NORMAL_RESIZE_MODES
     }
     fn gui_rect(&self) -> Rect {
         self.inner
@@ -136,26 +136,17 @@ impl Shape for Block {
     fn gui_rect_mut(&mut self) -> &mut Rect {
         &mut self.inner
     }
-    fn as_pin_shape(&self) -> Option<&dyn PinShape> {
-        Some(self)
-    }
-    fn as_pin_shape_mut(&mut self) -> Option<&mut dyn PinShape> {
-        Some(self)
-    }
     fn apply_resize(&mut self, _mode: ResizeMode, new_rect: Rect) {
         self.inner = new_rect;
     }
-}
-
-impl PinShape for Block {
     fn pin(&self, id: PinId) -> Option<&Pin> {
         self.pins.get(id)
     }
     fn pins_mut(&mut self, id: PinId) -> Option<&mut Pin> {
         self.pins.get_mut(id)
     }
-    fn iter_pins(&self) -> Box<dyn Iterator<Item = (PinId, &Pin)> + '_> {
-        Box::new(self.pins.iter())
+    fn iter_pins(&self, mut f: impl FnMut(PinId, &Pin)) {
+        self.pins.iter().for_each(|(id, pin)| f(id, pin));
     }
     fn pin_head_pos(&self, pin_id: PinId) -> Option<Pos2> {
         self.pins.get(pin_id).map(|pin| match pin.side {
@@ -188,5 +179,3 @@ impl PinShape for Block {
         self.update_pin_offset_inner(pin_id, delta_y);
     }
 }
-
-// ── RectBoxPort ───────────────────────────────────────────────────────────────

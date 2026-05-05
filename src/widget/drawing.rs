@@ -22,7 +22,7 @@ use crate::{
         direction::RouteDirection,
         pin::PinSide,
         port::Port,
-        shape::Shape,
+        shape::{BaseShape, Shape},
         waypoint::Waypoint,
     },
 };
@@ -37,7 +37,7 @@ pub struct LineAnchor {
 
 #[derive(Default)]
 pub struct Drawing {
-    rect_boxes: Store<RectId, Box<dyn Shape>>,
+    rect_boxes: Store<RectId, Shape>,
     auto_routes: Store<RouteId, AutoRoute>,
     state: State,
     auto_route: Vec<TaggedPoint>,
@@ -53,23 +53,19 @@ enum RouteRenderMode {
 }
 
 impl Drawing {
-    pub fn rect(&self, id: RectId) -> Option<&dyn Shape> {
-        self.rect_boxes.get(id).map(|b| b.as_ref())
+    pub fn rect(&self, id: RectId) -> Option<&Shape> {
+        self.rect_boxes.get(id)
     }
-    pub fn rect_mut(&mut self, id: RectId) -> Option<&mut dyn Shape> {
-        self.rect_boxes
-            .get_mut(id)
-            .map(|b| -> &mut dyn Shape { b.as_mut() })
+    pub fn rect_mut(&mut self, id: RectId) -> Option<&mut Shape> {
+        self.rect_boxes.get_mut(id)
     }
     pub fn add_rect_box(&mut self, start: Pos2, end: Pos2) -> RectId {
-        self.rect_boxes.insert(Box::new(Block::new(
-            "Untitled".to_string(),
-            Rect::from_two_pos(start, end),
-        )))
+        self.rect_boxes
+            .insert(Block::new("Untitled".to_string(), Rect::from_two_pos(start, end)).into())
     }
     pub fn add_port_box(&mut self, pin_name: String, side: PinSide, inner: Rect) -> RectId {
         self.rect_boxes
-            .insert(Box::new(Port::new(pin_name, side, inner)))
+            .insert(Port::new(pin_name, side, inner).into())
     }
     pub fn routing_box(&self, id: RectId) -> Option<Rect> {
         let rect = self.rect(id)?.gui_rect();
@@ -258,7 +254,7 @@ impl Drawing {
             self.render_route(ui, &route, RouteRenderMode::Normal);
         }
         for (id, rect_box) in self.rect_boxes.iter_mut() {
-            if render_rect_box(id, rect_box.as_mut(), &self.state, ui) == FocusResult::LostFocus {
+            if render_rect_box(id, rect_box, &self.state, ui) == FocusResult::LostFocus {
                 self.state = Selected { rect: id }.into();
             }
         }
@@ -668,7 +664,7 @@ impl Drawing {
         if let Some(hover_pos) = response.hover_pos()
             && let Some(bbox) = self.rect(rect)
         {
-            for mode in bbox.resize_modes() {
+            for &mode in bbox.resize_modes() {
                 if hover_pos.distance(control_corner(&bbox.gui_rect(), mode)) < MOVE_HOVER_DISTANCE
                 {
                     return PotentialResize { rect, mode }.into();

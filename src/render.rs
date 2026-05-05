@@ -12,7 +12,8 @@ use crate::{
     widget::{
         block::{control_corner, resize_rect},
         pin::{Pin, PinSide},
-        shape::{PinShape, Shape},
+        port::Port,
+        shape::{BaseShape, Shape},
     },
 };
 
@@ -89,23 +90,21 @@ fn draw_box_outline(
     }
 }
 
-fn draw_port_text_in_rect(rect: &dyn PinShape, bbox: Rect, ui: &mut Ui) {
-    if let Some((_, pin)) = rect.iter_pins().next() {
-        ui.painter().text(
-            bbox.center(),
-            egui::Align2::CENTER_CENTER,
-            &pin.text,
-            egui::FontId::monospace(PORT_TEXT_SIZE),
-            Color32::BLACK,
-        );
-    }
+fn draw_port_text_in_rect(rect: &Port, bbox: Rect, ui: &mut Ui) {
+    ui.painter().text(
+        bbox.center(),
+        egui::Align2::CENTER_CENTER,
+        &rect.name(),
+        egui::FontId::monospace(PORT_TEXT_SIZE),
+        Color32::BLACK,
+    );
 }
 
-fn draw_port_text(rect: &dyn PinShape, ui: &mut Ui) {
+fn draw_port_text(rect: &Port, ui: &mut Ui) {
     draw_port_text_in_rect(rect, rect.gui_rect(), ui);
 }
 
-pub fn draw_resizing_rect(rect: &dyn Shape, ui: &mut Ui, mode: ResizeMode, delta: Vec2) {
+pub fn draw_resizing_rect(rect: &Shape, ui: &mut Ui, mode: ResizeMode, delta: Vec2) {
     let resized_rect = resize_rect(&rect.gui_rect(), mode, delta);
     let predicted_rect = grid_rect(resized_rect);
     let port_side = rect.port_side();
@@ -146,7 +145,7 @@ pub fn draw_resizing_rect(rect: &dyn Shape, ui: &mut Ui, mode: ResizeMode, delta
     }
 }
 
-pub fn draw_moving_rect(rect: &dyn Shape, ui: &mut Ui, delta: Vec2) {
+pub fn draw_moving_rect(rect: &Shape, ui: &mut Ui, delta: Vec2) {
     let shifted_rect = rect.gui_rect().translate(delta);
     let predicted_rect = grid_rect(shifted_rect);
     let port_side = rect.port_side();
@@ -198,7 +197,7 @@ fn render_pins_with_box<'a>(
     }
 }
 
-fn render_frame(rect: &dyn Shape, ui: &mut Ui) {
+fn render_frame(rect: &Shape, ui: &mut Ui) {
     let egui_box = rect.gui_rect();
     draw_box_outline(
         egui_box,
@@ -218,7 +217,7 @@ fn render_frame(rect: &dyn Shape, ui: &mut Ui) {
     }
 }
 
-fn render_with_grip_state(rect: &dyn Shape, grip_state: GripState, ui: &mut Ui) {
+fn render_with_grip_state(rect: &Shape, grip_state: GripState, ui: &mut Ui) {
     render_frame(rect, ui);
     if rect.port_side().is_some() {
         if let Some(ps) = rect.as_pin_shape() {
@@ -334,14 +333,14 @@ pub fn get_hamburger_rect(bbox: Rect, pin: &Pin) -> Rect {
     Rect::from_center_size(text_pos + stem / 2.0, vec2(GRIP_SIZE, GRIP_SIZE))
 }
 
-pub fn draw_dragged_pin(rrect: &dyn PinShape, pin: PinId, delta_pos: Vec2, ui: &mut Ui) {
+pub fn draw_dragged_pin(rrect: &Shape, pin: PinId, delta_pos: Vec2, ui: &mut Ui) {
     let Some(pin) = rrect.pin(pin) else {
         return;
     };
     draw_pin(rrect.gui_rect(), pin, GripState::Drawn, delta_pos.y, ui);
 }
 
-pub fn draw_control_frame(rrect: &dyn Shape, ui: &mut Ui) -> Option<()> {
+pub fn draw_control_frame(rrect: &Shape, ui: &mut Ui) -> Option<()> {
     let bbox = rrect.gui_rect();
     draw_box_outline(
         bbox,
@@ -350,7 +349,7 @@ pub fn draw_control_frame(rrect: &dyn Shape, ui: &mut Ui) -> Option<()> {
         Stroke::new(0.5, Color32::DARK_RED),
         ui,
     );
-    for mode in rrect.resize_modes() {
+    for &mode in rrect.resize_modes() {
         let pos = control_corner(&bbox, mode);
         ui.painter().rect(
             Rect::from_center_size(pos, vec2(CONTROL_HANDLE_SIZE, CONTROL_HANDLE_SIZE)),
@@ -386,7 +385,7 @@ pub fn draw_control_frame(rrect: &dyn Shape, ui: &mut Ui) -> Option<()> {
     Some(())
 }
 
-fn render_selected(target: &dyn Shape, ui: &mut Ui) {
+fn render_selected(target: &Shape, ui: &mut Ui) {
     render_with_grip_state(target, GripState::Drawn, ui);
     draw_control_frame(target, ui);
 }
@@ -398,12 +397,7 @@ pub enum FocusResult {
     LostFocus,
 }
 
-pub fn render_rect_box(
-    id: RectId,
-    target: &mut dyn Shape,
-    state: &State,
-    ui: &mut Ui,
-) -> FocusResult {
+pub fn render_rect_box(id: RectId, target: &mut Shape, state: &State, ui: &mut Ui) -> FocusResult {
     match state {
         State::MovingRect(MovingRect { rect, delta_pos }) if id == *rect => {
             draw_moving_rect(target, ui, *delta_pos);
