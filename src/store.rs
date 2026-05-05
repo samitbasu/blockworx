@@ -108,6 +108,12 @@ macro_rules! define_id {
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
         pub struct $name(usize);
 
+        impl $name {
+            pub const fn from_usize(value: usize) -> Self {
+                Self(value)
+            }
+        }
+
         impl KeyType for $name {
             fn from_usize(value: usize) -> Self {
                 Self(value)

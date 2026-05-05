@@ -194,6 +194,11 @@ impl AutoRoute {
     pub fn waypoint_mut(&mut self, waypoint_id: WaypointId) -> Option<&mut Waypoint> {
         self.waypoints.get_mut(waypoint_id)
     }
+    pub fn update_waypoint(&mut self, waypoint_id: WaypointId, update: impl FnOnce(&mut Waypoint)) {
+        if let Some(wp) = self.waypoint_mut(waypoint_id) {
+            update(wp);
+        }
+    }
     pub fn iter_waypoints(&self) -> impl Iterator<Item = (WaypointId, &Waypoint)> {
         self.waypoints.iter()
     }

@@ -4,12 +4,6 @@ pub enum PinSide {
     West,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum BoxKind {
-    Normal,
-    Port,
-}
-
 #[derive(Clone)]
 pub struct Pin {
     pub text: String,

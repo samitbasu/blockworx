@@ -1,18 +1,14 @@
 use egui::{Pos2, Rect, Vec2, pos2, vec2};
 
 use crate::{
-    grid::{GRID_SIZE, PORT_HEIGHT, grid_rect, round_to_grid, snap},
+    grid::{GRID_SIZE, round_to_grid, snap},
     state::ResizeMode,
     store::*,
-    widget::pin::{BoxKind, Pin, PinSide},
+    widget::{
+        pin::{Pin, PinSide},
+        shape::{PinShape, Shape},
+    },
 };
-
-pub struct RectBox {
-    name: String,
-    inner: Rect,
-    pins: Store<PinId, Pin>,
-    kind: BoxKind,
-}
 
 pub fn resize_rect(rect: &Rect, mode: ResizeMode, delta: Vec2) -> Rect {
     match mode {
@@ -40,71 +36,33 @@ pub fn control_corner(rect: &Rect, mode: ResizeMode) -> Pos2 {
     }
 }
 
-impl RectBox {
-    pub fn pin(&self, id: PinId) -> Option<&Pin> {
-        self.pins.get(id)
-    }
-    pub fn pins_mut(&mut self, id: PinId) -> Option<&mut Pin> {
-        self.pins.get_mut(id)
-    }
-    pub fn iter_pins(&self) -> impl Iterator<Item = (PinId, &Pin)> + '_ {
-        self.pins.iter()
-    }
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-    pub fn name_mut(&mut self) -> &mut String {
-        &mut self.name
-    }
-    pub fn kind(&self) -> BoxKind {
-        self.kind
-    }
-    pub fn is_port(&self) -> bool {
-        self.kind == BoxKind::Port
-    }
-    pub fn resize_modes(&self) -> &'static [ResizeMode] {
-        if self.is_port() {
-            &[
-                ResizeMode::LeftTop,
-                ResizeMode::RightTop,
-                ResizeMode::LeftBottom,
-                ResizeMode::RightBottom,
-            ]
-        } else {
-            &[
-                ResizeMode::LeftTop,
-                ResizeMode::RightTop,
-                ResizeMode::LeftBottom,
-                ResizeMode::RightBottom,
-                ResizeMode::CenterTop,
-                ResizeMode::CenterBottom,
-            ]
-        }
-    }
+const NORMAL_RESIZE_MODES: &[ResizeMode] = &[
+    ResizeMode::LeftTop,
+    ResizeMode::RightTop,
+    ResizeMode::LeftBottom,
+    ResizeMode::RightBottom,
+    ResizeMode::CenterTop,
+    ResizeMode::CenterBottom,
+];
+
+// ── RectBoxNormal ─────────────────────────────────────────────────────────────
+
+pub struct Block {
+    name: String,
+    inner: Rect,
+    pins: Store<PinId, Pin>,
+}
+
+impl Block {
     pub fn new(name: String, inner: Rect) -> Self {
         Self {
             name,
             inner: snap(inner),
             pins: Store::default(),
-            kind: BoxKind::Normal,
         }
     }
-    pub fn new_port(pin_name: String, side: PinSide, inner: Rect) -> Self {
-        let snapped = snap(inner);
-        let clamped = Rect::from_min_size(snapped.min, vec2(snapped.width(), PORT_HEIGHT));
-        let mut result = Self {
-            name: String::new(),
-            inner: clamped,
-            pins: Store::default(),
-            kind: BoxKind::Port,
-        };
-        result.add_pin(pin_name, side, 0.0);
-        result
-    }
+
     pub fn is_pin_offset_available(&self, side: PinSide, offset: f32) -> bool {
-        if self.is_port() {
-            return false;
-        }
         if offset < 0.0 || offset > self.inner.height() {
             return false;
         }
@@ -113,10 +71,8 @@ impl RectBox {
             .filter(|l| l.side == side)
             .all(|l| (l.offset - offset).abs() >= GRID_SIZE * 0.2)
     }
-    pub fn update_pin_offset(&mut self, pin_id: PinId, delta_y: f32) {
-        if self.is_port() {
-            return;
-        }
+
+    pub fn update_pin_offset_inner(&mut self, pin_id: PinId, delta_y: f32) {
         let Some(pin_ref) = self.pin(pin_id) else {
             return;
         };
@@ -129,10 +85,8 @@ impl RectBox {
         };
         pin_ref.offset = pin_offset;
     }
-    pub fn next_pin_offset(&self, side: PinSide) -> Option<f32> {
-        if self.is_port() {
-            return None;
-        }
+
+    pub fn next_pin_offset_inner(&self, side: PinSide) -> Option<f32> {
         let max_pos = (self.inner.height() / GRID_SIZE) as i32 - 1;
         if max_pos <= 0 {
             return None;
@@ -150,27 +104,66 @@ impl RectBox {
             }
         })
     }
-    pub fn add_pin_button_east(&self) -> Option<Pos2> {
-        if self.is_port() {
-            return None;
-        }
-        let offset = self.next_pin_offset(PinSide::East)?;
+
+    pub fn add_pin_inner(&mut self, text: String, side: PinSide, offset: f32) -> PinId {
+        self.pins.insert(Pin { text, side, offset })
+    }
+
+    pub fn add_pin_button_east_inner(&self) -> Option<Pos2> {
+        let offset = self.next_pin_offset_inner(PinSide::East)?;
         Some(self.inner.right_top() + vec2(GRID_SIZE, GRID_SIZE + offset))
     }
-    pub fn add_pin_button_west(&self) -> Option<Pos2> {
-        if self.is_port() {
-            return None;
-        }
-        let offset = self.next_pin_offset(PinSide::West)?;
+
+    pub fn add_pin_button_west_inner(&self) -> Option<Pos2> {
+        let offset = self.next_pin_offset_inner(PinSide::West)?;
         Some(self.inner.left_top() + vec2(-GRID_SIZE, GRID_SIZE + offset))
     }
-    pub fn pin_head_pos(&self, pin_id: PinId) -> Option<Pos2> {
+}
+
+impl Shape for Block {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn name_mut(&mut self) -> &mut String {
+        &mut self.name
+    }
+    fn resize_modes(&self) -> Box<dyn Iterator<Item = ResizeMode> + '_> {
+        Box::new(NORMAL_RESIZE_MODES.iter().copied())
+    }
+    fn gui_rect(&self) -> Rect {
+        self.inner
+    }
+    fn gui_rect_mut(&mut self) -> &mut Rect {
+        &mut self.inner
+    }
+    fn as_pin_shape(&self) -> Option<&dyn PinShape> {
+        Some(self)
+    }
+    fn as_pin_shape_mut(&mut self) -> Option<&mut dyn PinShape> {
+        Some(self)
+    }
+    fn apply_resize(&mut self, _mode: ResizeMode, new_rect: Rect) {
+        self.inner = new_rect;
+    }
+}
+
+impl PinShape for Block {
+    fn pin(&self, id: PinId) -> Option<&Pin> {
+        self.pins.get(id)
+    }
+    fn pins_mut(&mut self, id: PinId) -> Option<&mut Pin> {
+        self.pins.get_mut(id)
+    }
+    fn iter_pins(&self) -> Box<dyn Iterator<Item = (PinId, &Pin)> + '_> {
+        Box::new(self.pins.iter())
+    }
+    fn pin_head_pos(&self, pin_id: PinId) -> Option<Pos2> {
         self.pins.get(pin_id).map(|pin| match pin.side {
             PinSide::East => self.inner.right_top() + vec2(GRID_SIZE, GRID_SIZE + pin.offset),
             PinSide::West => self.inner.left_top() + vec2(-GRID_SIZE, GRID_SIZE + pin.offset),
         })
     }
-    pub fn anchor_point_with_rect(&self, rect: Rect, id: PinId) -> Option<Pos2> {
+    fn anchor_point_with_rect(&self, rect: Rect, id: PinId) -> Option<Pos2> {
         self.pins.get(id).map(|pin| match pin.side {
             PinSide::East => pos2(
                 rect.right() + GRID_SIZE,
@@ -179,19 +172,21 @@ impl RectBox {
             PinSide::West => pos2(rect.left() - GRID_SIZE, rect.top() + GRID_SIZE + pin.offset),
         })
     }
-    pub fn anchor_point(&self, id: PinId) -> Option<Pos2> {
-        self.anchor_point_with_rect(self.inner, id)
+    fn add_pin_button_east(&self) -> Option<Pos2> {
+        self.add_pin_button_east_inner()
     }
-    pub fn add_pin(&mut self, text: String, side: PinSide, offset: f32) -> PinId {
-        self.pins.insert(Pin { text, side, offset })
+    fn add_pin_button_west(&self) -> Option<Pos2> {
+        self.add_pin_button_west_inner()
     }
-    pub fn predicted_rect(&self) -> Rect {
-        grid_rect(self.inner)
+    fn next_pin_offset(&self, side: PinSide) -> Option<f32> {
+        self.next_pin_offset_inner(side)
     }
-    pub fn gui_rect(&self) -> Rect {
-        self.inner
+    fn add_pin(&mut self, text: String, side: PinSide, offset: f32) -> Option<PinId> {
+        Some(self.add_pin_inner(text, side, offset))
     }
-    pub fn gui_rect_mut(&mut self) -> &mut Rect {
-        &mut self.inner
+    fn update_pin_offset(&mut self, pin_id: PinId, delta_y: f32) {
+        self.update_pin_offset_inner(pin_id, delta_y);
     }
 }
+
+// ── RectBoxPort ───────────────────────────────────────────────────────────────
