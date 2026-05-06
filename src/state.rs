@@ -8,6 +8,18 @@ use crate::{
     },
 };
 
+#[derive(Clone, Copy, Debug)]
+pub enum RenderMode {
+    Normal,
+    Moving         { delta: Vec2 },
+    Resizing       { mode: ResizeMode, delta: Vec2 },
+    Selected,
+    PinHeadHovered { pin: PinId },
+    PinDragged     { pin: PinId, delta: Vec2 },
+    EditingName,
+    EditingPinText { pin: PinId },
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ResizeMode {
     LeftTop,
@@ -242,6 +254,29 @@ pub struct RouteCornerHovered {
 }
 
 impl State {
+    pub fn render_mode_for_id(&self, id: RectId) -> RenderMode {
+        match self {
+            State::MovingRect(MovingRect { rect, delta_pos }) if id == *rect
+                => RenderMode::Moving { delta: *delta_pos },
+            State::Selected(Selected { rect })
+            | State::PotentialResize(PotentialResize { rect, .. })
+            | State::PinLabelHovered(PinLabelHovered { rect, .. })
+            | State::PinLabelGripHovered(PinLabelGripHovered { rect, .. })
+                if id == *rect => RenderMode::Selected,
+            State::PinHeadHovered(PinHeadHovered { rect, pin }) if id == *rect
+                => RenderMode::PinHeadHovered { pin: *pin },
+            State::ResizingRect(ResizingRect { rect, mode, delta_pos, .. }) if id == *rect
+                => RenderMode::Resizing { mode: *mode, delta: *delta_pos },
+            State::PinDragged(PinDragged { rect, pin, delta_pos }) if id == *rect
+                => RenderMode::PinDragged { pin: *pin, delta: *delta_pos },
+            State::EditingName(EditingName { rect }) if id == *rect
+                => RenderMode::EditingName,
+            State::EditingPinText(EditingPinText { rect, pin }) if id == *rect
+                => RenderMode::EditingPinText { pin: *pin },
+            _ => RenderMode::Normal,
+        }
+    }
+
     pub fn cursor(&self) -> CursorIcon {
         match self {
             State::PotentialResize(PotentialResize { mode, .. })

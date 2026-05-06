@@ -6,6 +6,7 @@ pub mod edge;
 pub mod linear_distance;
 pub mod pin;
 pub mod port;
+pub mod render;
 pub mod segmentkind;
 pub mod shape;
 pub mod waypoint;

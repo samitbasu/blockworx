@@ -1,14 +1,42 @@
-use egui::{Pos2, Rect, Vec2, pos2, vec2};
+use egui::{Color32, Pos2, Rect, Stroke, TextEdit, Ui, Vec2, pos2, vec2};
 
 use crate::{
-    grid::{GRID_SIZE, round_to_grid, snap},
-    state::ResizeMode,
+    grid::{
+        GRID_SIZE, PORT_RADIUS, PORT_TEXT_SIZE, SHIM, TITLE_TEXT_SIZE, grid_rect, round_to_grid,
+        snap,
+    },
+    state::{RenderMode, ResizeMode},
     store::*,
     widget::{
         pin::{Pin, PinSide},
+        render::{
+            FocusResult, GripState, draw_box_outline, draw_control_frame, draw_pin,
+            get_control_pin_bbox, get_hamburger_rect, render_pins_with_box,
+        },
         shape::BaseShape,
     },
 };
+
+fn draw_block_title(bbox: Rect, name: &str, ui: &mut Ui) {
+    ui.painter().text(
+        bbox.center_top() + vec2(0.0, SHIM),
+        egui::Align2::CENTER_TOP,
+        name,
+        egui::FontId::monospace(TITLE_TEXT_SIZE),
+        Color32::BLACK,
+    );
+}
+
+fn draw_block_frame(bbox: Rect, name: &str, ui: &mut Ui) {
+    draw_box_outline(
+        bbox,
+        None,
+        Color32::LIGHT_GRAY,
+        Stroke::new(1.0, Color32::BLUE),
+        ui,
+    );
+    draw_block_title(bbox, name, ui);
+}
 
 pub fn resize_rect(rect: &Rect, mode: ResizeMode, delta: Vec2) -> Rect {
     match mode {
@@ -177,5 +205,174 @@ impl BaseShape for Block {
     }
     fn update_pin_offset(&mut self, pin_id: PinId, delta_y: f32) {
         self.update_pin_offset_inner(pin_id, delta_y);
+    }
+
+    fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult {
+        let bbox = self.inner;
+        match mode {
+            RenderMode::Normal => {
+                draw_block_frame(bbox, &self.name, ui);
+                render_pins_with_box(self.pins.values(), bbox, GripState::Hidden, ui);
+            }
+            RenderMode::Selected => {
+                draw_block_frame(bbox, &self.name, ui);
+                render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
+                draw_control_frame(
+                    bbox,
+                    None,
+                    NORMAL_RESIZE_MODES,
+                    self.add_pin_button_east_inner(),
+                    self.add_pin_button_west_inner(),
+                    ui,
+                );
+            }
+            RenderMode::PinHeadHovered { pin } => {
+                draw_block_frame(bbox, &self.name, ui);
+                render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
+                draw_control_frame(
+                    bbox,
+                    None,
+                    NORMAL_RESIZE_MODES,
+                    self.add_pin_button_east_inner(),
+                    self.add_pin_button_west_inner(),
+                    ui,
+                );
+                if let Some(p) = self.pins.get(pin) {
+                    let cb = get_control_pin_bbox(bbox, p);
+                    ui.painter().circle(
+                        cb.center(),
+                        PORT_RADIUS,
+                        Color32::GRAY,
+                        (1.0, Color32::BLACK),
+                    );
+                }
+            }
+            RenderMode::Moving { delta } => {
+                let shifted = bbox.translate(delta);
+                let predicted = grid_rect(shifted);
+                draw_box_outline(
+                    predicted,
+                    None,
+                    Color32::TRANSPARENT,
+                    Stroke::new(1.0, Color32::DARK_GRAY),
+                    ui,
+                );
+                draw_box_outline(
+                    shifted,
+                    None,
+                    Color32::LIGHT_GRAY,
+                    Stroke::new(2.0, Color32::DARK_RED),
+                    ui,
+                );
+                draw_block_title(shifted, &self.name, ui);
+                render_pins_with_box(self.pins.values(), shifted, GripState::Hidden, ui);
+            }
+            RenderMode::Resizing { mode, delta } => {
+                let resized = resize_rect(&bbox, mode, delta);
+                let predicted = grid_rect(resized);
+                draw_box_outline(
+                    predicted,
+                    None,
+                    Color32::TRANSPARENT,
+                    Stroke::new(1.0, Color32::DARK_GRAY),
+                    ui,
+                );
+                draw_box_outline(
+                    resized,
+                    None,
+                    Color32::LIGHT_GRAY,
+                    Stroke::new(2.0, Color32::DARK_RED),
+                    ui,
+                );
+                draw_block_title(resized, &self.name, ui);
+                render_pins_with_box(self.pins.values(), resized, GripState::Hidden, ui);
+            }
+            RenderMode::PinDragged {
+                pin: dragged_pin,
+                delta,
+            } => {
+                draw_block_frame(bbox, &self.name, ui);
+                render_pins_with_box(
+                    self.pins
+                        .iter()
+                        .filter_map(|(id, p)| if id != dragged_pin { Some(p) } else { None }),
+                    bbox,
+                    GripState::Drawn,
+                    ui,
+                );
+                draw_control_frame(
+                    bbox,
+                    None,
+                    NORMAL_RESIZE_MODES,
+                    self.add_pin_button_east_inner(),
+                    self.add_pin_button_west_inner(),
+                    ui,
+                );
+                ui.painter().line_segment(
+                    [bbox.center_top(), bbox.center_bottom()],
+                    (2.0, Color32::DARK_GRAY.gamma_multiply(0.3)),
+                );
+                if let Some(pin) = self.pins.get(dragged_pin) {
+                    draw_pin(bbox, pin, GripState::Drawn, delta.y, ui);
+                }
+            }
+            RenderMode::EditingName => {
+                draw_block_frame(bbox, &self.name, ui);
+                render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
+                draw_control_frame(
+                    bbox,
+                    None,
+                    NORMAL_RESIZE_MODES,
+                    self.add_pin_button_east_inner(),
+                    self.add_pin_button_west_inner(),
+                    ui,
+                );
+                let rect_name_width = self.name.len() as f32 * 10.0 + 10.0;
+                let editor_position = bbox.center_top() + vec2(-rect_name_width / 2.0, SHIM);
+                let editor_rect = Rect::from_min_size(editor_position, vec2(rect_name_width, 20.0));
+                let response = ui.place(
+                    editor_rect,
+                    TextEdit::singleline(&mut self.name)
+                        .font(egui::FontId::monospace(TITLE_TEXT_SIZE))
+                        .desired_width(f32::INFINITY),
+                );
+                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    return FocusResult::LostFocus;
+                } else {
+                    response.request_focus();
+                }
+            }
+            RenderMode::EditingPinText { pin: pin_id } => {
+                draw_block_frame(bbox, &self.name, ui);
+                render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
+                draw_control_frame(
+                    bbox,
+                    None,
+                    NORMAL_RESIZE_MODES,
+                    self.add_pin_button_east_inner(),
+                    self.add_pin_button_west_inner(),
+                    ui,
+                );
+                let Some(pin_ref) = self.pins.get_mut(pin_id) else {
+                    return FocusResult::KeptFocus;
+                };
+                let editor_width =
+                    ((pin_ref.text.len() as f32 * PORT_TEXT_SIZE * 0.6 + 10.0) / 2.0).max(20.0);
+                let editor_position =
+                    get_hamburger_rect(bbox, pin_ref).expand2(vec2(editor_width, 0.0));
+                let response = ui.place(
+                    editor_position,
+                    TextEdit::singleline(&mut pin_ref.text)
+                        .font(egui::FontId::monospace(PORT_TEXT_SIZE))
+                        .desired_width(f32::INFINITY),
+                );
+                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    return FocusResult::LostFocus;
+                } else {
+                    response.request_focus();
+                }
+            }
+        }
+        FocusResult::KeptFocus
     }
 }

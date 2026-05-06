@@ -8,10 +8,6 @@ use crate::{
         GRID_SIZE, MOVE_HOVER_DISTANCE, PORT_HEIGHT, PORT_RADIUS, ROUTE_TEXT_SIZE, SHIM, grid_rect,
         round_to_grid, snap_to_grid,
     },
-    render::{
-        FocusResult, estimate_bbox_for_pin_text, get_control_pin_bbox, get_hamburger_rect,
-        render_path_with_chamfered_corners, render_rect_box,
-    },
     router::{RouterNG, RouterNGBuilder, TaggedPoint, WIRE_COST, cost::COST_ZERO},
     state::*,
     store::*,
@@ -22,6 +18,10 @@ use crate::{
         direction::RouteDirection,
         pin::PinSide,
         port::Port,
+        render::{
+            FocusResult, estimate_bbox_for_pin_text, get_control_pin_bbox, get_hamburger_rect,
+            render_path_with_chamfered_corners,
+        },
         shape::{BaseShape, Shape},
         waypoint::Waypoint,
     },
@@ -260,7 +260,8 @@ impl Drawing {
             self.render_route(ui, &route, RouteRenderMode::Normal);
         }
         for (id, rect_box) in self.rect_boxes.iter_mut() {
-            if render_rect_box(id, rect_box, &self.state, ui) == FocusResult::LostFocus {
+            let mode = self.state.render_mode_for_id(id);
+            if rect_box.render(mode, ui) == FocusResult::LostFocus {
                 self.state = Selected { rect: id }.into();
             }
         }
@@ -1196,11 +1197,9 @@ impl Drawing {
         }
         if let Some(pos) = response.hover_pos() {
             auto_route.head = pos;
-            if let Some(tail) = self
-                .find_anchor(|anchor, anchor_pos| {
-                    (anchor_pos.distance(pos) < PORT_RADIUS).then_some(anchor)
-                })
-                && tail != auto_route.start
+            if let Some(tail) = self.find_anchor(|anchor, anchor_pos| {
+                (anchor_pos.distance(pos) < PORT_RADIUS).then_some(anchor)
+            }) && tail != auto_route.start
             {
                 return ProposedAutoRoute {
                     start: auto_route.start,
@@ -1232,11 +1231,9 @@ impl Drawing {
             return RouteSelected { id }.into();
         }
         if let Some(pos) = response.hover_pos() {
-            if let Some(tail) = self
-                .find_anchor(|anchor, anchor_pos| {
-                    (anchor_pos.distance(pos) < PORT_RADIUS).then_some(anchor)
-                })
-                && tail != proposed_route.start
+            if let Some(tail) = self.find_anchor(|anchor, anchor_pos| {
+                (anchor_pos.distance(pos) < PORT_RADIUS).then_some(anchor)
+            }) && tail != proposed_route.start
             {
                 return ProposedAutoRoute {
                     start: proposed_route.start,

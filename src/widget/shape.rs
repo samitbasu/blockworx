@@ -1,14 +1,15 @@
-use egui::{Pos2, Rect, Vec2};
+use egui::{Pos2, Rect, Ui, Vec2};
 use enum_dispatch::enum_dispatch;
 
 use crate::{
     grid::grid_rect,
-    state::ResizeMode,
+    state::{RenderMode, ResizeMode},
     store::PinId,
     widget::{
         block::Block,
         pin::{Pin, PinSide},
         port::Port,
+        render::FocusResult,
     },
 };
 
@@ -75,6 +76,7 @@ pub trait BaseShape {
         None
     }
     fn update_pin_offset(&mut self, _pin_id: PinId, _delta_y: f32) {}
+    fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult;
 }
 
 #[enum_dispatch]

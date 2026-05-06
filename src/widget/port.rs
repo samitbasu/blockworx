@@ -1,11 +1,13 @@
-use egui::{Pos2, Rect, Vec2, pos2, vec2};
+use egui::{Color32, Pos2, Rect, Stroke, TextEdit, Ui, Vec2, pos2, vec2};
 
 use crate::{
-    grid::{GRID_SIZE, PORT_HEIGHT, snap},
-    state::ResizeMode,
+    grid::{GRID_SIZE, PORT_HEIGHT, PORT_RADIUS, PORT_TEXT_SIZE, grid_rect, snap},
+    state::{RenderMode, ResizeMode},
     store::PinId,
     widget::{
+        block::resize_rect,
         pin::{Pin, PinSide},
+        render::{FocusResult, draw_box_outline, draw_control_frame, get_control_pin_bbox},
         shape::BaseShape,
     },
 };
@@ -100,5 +102,127 @@ impl BaseShape for Port {
                 rect.top() + GRID_SIZE + self.pin.offset,
             ),
         })
+    }
+
+    fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult {
+        let bbox = self.inner;
+        let side = Some(self.pin.side);
+
+        let draw_normal = |bbox: Rect, name: &str, side: Option<PinSide>, ui: &mut Ui| {
+            draw_box_outline(
+                bbox,
+                side,
+                Color32::LIGHT_GRAY,
+                Stroke::new(1.0, Color32::BLUE),
+                ui,
+            );
+            ui.painter().text(
+                bbox.center(),
+                egui::Align2::CENTER_CENTER,
+                name,
+                egui::FontId::monospace(PORT_TEXT_SIZE),
+                Color32::BLACK,
+            );
+        };
+
+        match mode {
+            RenderMode::Normal => {
+                draw_normal(bbox, &self.pin.text, side, ui);
+            }
+            RenderMode::Selected => {
+                draw_normal(bbox, &self.pin.text, side, ui);
+                draw_control_frame(bbox, side, PORT_RESIZE_MODES, None, None, ui);
+            }
+            RenderMode::PinHeadHovered { pin } => {
+                draw_normal(bbox, &self.pin.text, side, ui);
+                draw_control_frame(bbox, side, PORT_RESIZE_MODES, None, None, ui);
+                if let Some(p) = self.pin(pin) {
+                    let cb = get_control_pin_bbox(bbox, p);
+                    ui.painter().circle(
+                        cb.center(),
+                        PORT_RADIUS,
+                        Color32::GRAY,
+                        (1.0, Color32::BLACK),
+                    );
+                }
+            }
+            RenderMode::Moving { delta } => {
+                let shifted = bbox.translate(delta);
+                let predicted = grid_rect(shifted);
+                draw_box_outline(
+                    predicted,
+                    side,
+                    Color32::TRANSPARENT,
+                    Stroke::new(1.0, Color32::DARK_GRAY),
+                    ui,
+                );
+                draw_box_outline(
+                    shifted,
+                    side,
+                    Color32::LIGHT_GRAY,
+                    Stroke::new(2.0, Color32::DARK_RED),
+                    ui,
+                );
+                ui.painter().text(
+                    shifted.center(),
+                    egui::Align2::CENTER_CENTER,
+                    &self.pin.text,
+                    egui::FontId::monospace(PORT_TEXT_SIZE),
+                    Color32::BLACK,
+                );
+            }
+            RenderMode::Resizing { mode, delta } => {
+                let resized = resize_rect(&bbox, mode, delta);
+                let predicted = grid_rect(resized);
+                draw_box_outline(
+                    predicted,
+                    side,
+                    Color32::TRANSPARENT,
+                    Stroke::new(1.0, Color32::DARK_GRAY),
+                    ui,
+                );
+                draw_box_outline(
+                    resized,
+                    side,
+                    Color32::LIGHT_GRAY,
+                    Stroke::new(2.0, Color32::DARK_RED),
+                    ui,
+                );
+                ui.painter().text(
+                    resized.center(),
+                    egui::Align2::CENTER_CENTER,
+                    &self.pin.text,
+                    egui::FontId::monospace(PORT_TEXT_SIZE),
+                    Color32::BLACK,
+                );
+            }
+            RenderMode::PinDragged { .. } => {
+                draw_normal(bbox, &self.pin.text, side, ui);
+                ui.painter().line_segment(
+                    [bbox.center_top(), bbox.center_bottom()],
+                    (2.0, Color32::DARK_GRAY.gamma_multiply(0.3)),
+                );
+            }
+            RenderMode::EditingName | RenderMode::EditingPinText { .. } => {
+                draw_normal(bbox, &self.pin.text, side, ui);
+                draw_control_frame(bbox, side, PORT_RESIZE_MODES, None, None, ui);
+                let text_width =
+                    (self.pin.text.len() as f32 * PORT_TEXT_SIZE * 0.6 + 20.0).max(40.0);
+                let editor_position =
+                    Rect::from_center_size(bbox.center(), vec2(text_width, PORT_TEXT_SIZE + 4.0));
+                let response = ui.place(
+                    editor_position,
+                    TextEdit::singleline(&mut self.pin.text)
+                        .font(egui::FontId::monospace(PORT_TEXT_SIZE))
+                        .desired_width(f32::INFINITY),
+                );
+                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    return FocusResult::LostFocus;
+                } else {
+                    response.request_focus();
+                }
+            }
+        }
+        FocusResult::KeptFocus
     }
 }
