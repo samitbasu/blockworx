@@ -74,7 +74,7 @@ impl BaseShape for Port {
     fn pins_mut(&mut self, id: PinId) -> Option<&mut Pin> {
         (id == PORT_PIN_ID).then_some(&mut self.pin)
     }
-    fn iter_pins(&self, mut f: impl FnMut(PinId, &Pin)) {
+    fn with_pins(&self, mut f: impl FnMut(PinId, &Pin)) {
         f(PORT_PIN_ID, &self.pin);
     }
     fn pin_head_pos(&self, id: PinId) -> Option<Pos2> {

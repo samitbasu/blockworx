@@ -35,10 +35,20 @@ pub trait BaseShape {
         None
     }
     fn pins_mut(&mut self, id: PinId) -> Option<&mut Pin> {
+        let _ = id;
         None
     }
-    fn iter_pins(&self, f: impl FnMut(PinId, &Pin)) {
+    fn with_pins(&self, f: impl FnMut(PinId, &Pin)) {
         let _ = f;
+    }
+    fn find_pin<T>(&self, mut f: impl FnMut(PinId, &Pin) -> Option<T>) -> Option<T> {
+        let mut ret = None;
+        self.with_pins(|id, pin| {
+            if ret.is_none() {
+                ret = f(id, pin);
+            }
+        });
+        ret
     }
     fn pin_head_pos(&self, id: PinId) -> Option<Pos2> {
         let _ = id;

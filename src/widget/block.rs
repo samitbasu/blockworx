@@ -145,7 +145,7 @@ impl BaseShape for Block {
     fn pins_mut(&mut self, id: PinId) -> Option<&mut Pin> {
         self.pins.get_mut(id)
     }
-    fn iter_pins(&self, mut f: impl FnMut(PinId, &Pin)) {
+    fn with_pins(&self, mut f: impl FnMut(PinId, &Pin)) {
         self.pins.iter().for_each(|(id, pin)| f(id, pin));
     }
     fn pin_head_pos(&self, pin_id: PinId) -> Option<Pos2> {
