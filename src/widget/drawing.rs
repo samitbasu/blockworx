@@ -586,7 +586,12 @@ impl Drawing {
     }
     fn handle_selected_state(&mut self, inner: Selected, response: Response) -> State {
         let rect = inner.rect;
-        if response.double_clicked_by(PointerButton::Primary) {
+        if response.double_clicked_by(PointerButton::Primary)
+            && let Some(pos) = response.interact_pointer_pos()
+            && let Some(rect_box) = self.rect(rect)
+            && let Shape::Block(block) = rect_box
+            && block.title_bbox().contains(pos)
+        {
             return EditingName { rect }.into();
         }
         if response.clicked_by(PointerButton::Primary)
@@ -671,6 +676,11 @@ impl Drawing {
                 if hover_pos.distance(title_position_anchor) < MOVE_HOVER_DISTANCE {
                     return TitleControlHovered { rect }.into();
                 }
+            }
+            if let Shape::Block(block) = &bbox
+                && block.title_bbox().contains(hover_pos)
+            {
+                return TitleHovered { rect }.into();
             }
             if let Some(state) = bbox.find_pin(|pid, pin| {
                 let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin);
@@ -941,7 +951,19 @@ impl Drawing {
         }
         self.handle_route_hover_check(inner.route, response)
     }
-
+    fn handle_title_hovered(&mut self, inner: TitleHovered, response: Response) -> State {
+        if response.double_clicked_by(egui::PointerButton::Primary) {
+            return EditingName { rect: inner.rect }.into();
+        }
+        if let Some(block) = self.rect(inner.rect)
+            && let Some(pos) = response.hover_pos()
+            && let Shape::Block(block) = &block
+            && block.title_bbox().contains(pos)
+        {
+            return inner.into();
+        }
+        Selected { rect: inner.rect }.into()
+    }
     fn handle_title_control_dragged(
         &mut self,
         inner: TitleControlDragged,
@@ -1326,6 +1348,7 @@ impl Drawing {
             State::TextAnchorDragged(inner) => self.handle_text_anchor_dragged(inner, response),
             State::TitleControlHovered(inner) => self.handle_title_control_hovered(inner, response),
             State::TitleControlDragged(inner) => self.handle_title_control_dragged(inner, response),
+            State::TitleHovered(inner) => self.handle_title_hovered(inner, response),
             State::AddTextButtonHovered(inner) => {
                 self.handle_add_text_button_hovered(inner, response)
             }

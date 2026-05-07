@@ -47,12 +47,6 @@ pub fn resize_rect(rect: &Rect, mode: ResizeMode, delta: Vec2) -> Rect {
         ResizeMode::RightTop => Rect::from_two_pos(rect.right_top() + delta, rect.left_bottom()),
         ResizeMode::LeftBottom => Rect::from_two_pos(rect.left_bottom() + delta, rect.right_top()),
         ResizeMode::RightBottom => Rect::from_two_pos(rect.right_bottom() + delta, rect.left_top()),
-        ResizeMode::CenterTop => {
-            Rect::from_two_pos(rect.left_top() + vec2(0.0, delta.y), rect.right_bottom())
-        }
-        ResizeMode::CenterBottom => {
-            Rect::from_two_pos(rect.left_bottom() + vec2(0.0, delta.y), rect.right_top())
-        }
     }
 }
 
@@ -62,8 +56,6 @@ pub fn control_corner(rect: &Rect, mode: ResizeMode) -> Pos2 {
         ResizeMode::RightTop => rect.right_top(),
         ResizeMode::LeftBottom => rect.left_bottom(),
         ResizeMode::RightBottom => rect.right_bottom(),
-        ResizeMode::CenterTop => rect.center_top(),
-        ResizeMode::CenterBottom => rect.center_bottom(),
     }
 }
 
@@ -72,8 +64,6 @@ const NORMAL_RESIZE_MODES: &[ResizeMode] = &[
     ResizeMode::RightTop,
     ResizeMode::LeftBottom,
     ResizeMode::RightBottom,
-    ResizeMode::CenterTop,
-    ResizeMode::CenterBottom,
 ];
 
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
@@ -163,6 +153,11 @@ impl Block {
     pub fn add_pin_button_west_inner(&self) -> Option<Pos2> {
         let offset = self.next_pin_offset_inner(PinSide::West)?;
         Some(self.inner.left_top() + vec2(-GRID_SIZE, GRID_SIZE + offset))
+    }
+    pub fn title_bbox(&self) -> Rect {
+        let title_width = (self.title.name.len() as f32 * TITLE_TEXT_SIZE * 0.6 + 10.0).max(20.0);
+        let (title_pos, title_align) = block_title_position(self.inner, &self.title);
+        title_align.anchor_size(title_pos, vec2(title_width, TITLE_TEXT_SIZE))
     }
 }
 
@@ -351,10 +346,33 @@ impl BaseShape for Block {
                 }
             }
             RenderMode::TitleDragged { delta } => {
-                let theme = get_theme(ui);
                 let mut shifted = self.title.clone();
                 shifted.offset += delta.x;
                 draw_block_frame(bbox, &shifted, ui);
+                // Special case - draw a partial mid-line and put instructions above
+                // and below the line
+                let theme = get_theme(ui);
+                ui.painter().line_segment(
+                    [bbox.left_center(), bbox.right_center()],
+                    (2.0, theme.pin_drag_indicator),
+                );
+                if shifted.side == TitleSide::Bottom {
+                    ui.painter().text(
+                        bbox.center(),
+                        egui::Align2::CENTER_BOTTOM,
+                        "↑ Drag to top",
+                        egui::FontId::monospace(8.0),
+                        theme.text_hint_text,
+                    );
+                } else {
+                    ui.painter().text(
+                        bbox.center(),
+                        egui::Align2::CENTER_TOP,
+                        "↓ Drag to bottom",
+                        egui::FontId::monospace(8.0),
+                        theme.text_hint_text,
+                    );
+                }
             }
             RenderMode::EditingName => {
                 draw_block_frame(bbox, &self.title, ui);

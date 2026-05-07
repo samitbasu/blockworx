@@ -27,8 +27,6 @@ pub enum ResizeMode {
     RightTop,
     LeftBottom,
     RightBottom,
-    CenterTop,
-    CenterBottom,
 }
 
 #[derive(PartialEq, Default, Debug, derive_more::From)]
@@ -68,6 +66,7 @@ pub enum State {
     TextAnchorDragged(TextAnchorDragged),
     TitleControlHovered(TitleControlHovered),
     TitleControlDragged(TitleControlDragged),
+    TitleHovered(TitleHovered),
 }
 
 impl State {
@@ -100,6 +99,11 @@ pub struct Selected {
 pub struct PotentialResize {
     pub rect: RectId,
     pub mode: ResizeMode,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TitleHovered {
+    pub rect: RectId,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -319,12 +323,12 @@ impl State {
             | State::ResizingRect(ResizingRect { mode, .. }) => match mode {
                 ResizeMode::LeftTop | ResizeMode::RightBottom => CursorIcon::ResizeNwSe,
                 ResizeMode::RightTop | ResizeMode::LeftBottom => CursorIcon::ResizeNeSw,
-                ResizeMode::CenterTop | ResizeMode::CenterBottom => CursorIcon::ResizeVertical,
             },
             State::PinLabelHovered { .. }
             | State::RouteLabelHovered { .. }
             | State::AddText
-            | State::AddTextHoveredRoute { .. } => CursorIcon::Text,
+            | State::AddTextHoveredRoute { .. }
+            | State::TitleHovered { .. } => CursorIcon::Text,
             State::PinLabelGripHovered { .. } => CursorIcon::Grab,
             State::PinHeadHovered { .. } => CursorIcon::Crosshair,
             State::PinDragged { .. } => CursorIcon::Grabbing,

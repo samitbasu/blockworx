@@ -40,6 +40,7 @@ pub struct Theme {
     pub hamburger_menu: Color32,
     pub text_edit_background: Color32,
     pub text_edit_text: Color32,
+    pub text_hint_text: Color32,
 
     // Debug
     pub debug_graph: Color32,
@@ -75,6 +76,7 @@ impl Default for Theme {
             hamburger_menu: Color32::DARK_GRAY.gamma_multiply(0.3),
             text_edit_background: Color32::WHITE,
             text_edit_text: Color32::BLACK,
+            text_hint_text: Color32::DARK_GRAY,
             debug_graph: Color32::RED.gamma_multiply(0.2),
         }
     }
