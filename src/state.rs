@@ -11,13 +11,14 @@ use crate::{
 #[derive(Clone, Copy, Debug)]
 pub enum RenderMode {
     Normal,
-    Moving         { delta: Vec2 },
-    Resizing       { mode: ResizeMode, delta: Vec2 },
+    Moving { delta: Vec2 },
+    Resizing { mode: ResizeMode, delta: Vec2 },
     Selected,
     PinHeadHovered { pin: PinId },
-    PinDragged     { pin: PinId, delta: Vec2 },
+    PinDragged { pin: PinId, delta: Vec2 },
     EditingName,
     EditingPinText { pin: PinId },
+    TitleDragged { delta: Vec2 },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -65,6 +66,8 @@ pub enum State {
     AddTextButtonHovered(AddTextButtonHovered),
     TextAnchorHovered(TextAnchorHovered),
     TextAnchorDragged(TextAnchorDragged),
+    TitleControlHovered(TitleControlHovered),
+    TitleControlDragged(TitleControlDragged),
 }
 
 impl State {
@@ -97,6 +100,17 @@ pub struct Selected {
 pub struct PotentialResize {
     pub rect: RectId,
     pub mode: ResizeMode,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TitleControlHovered {
+    pub rect: RectId,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TitleControlDragged {
+    pub rect: RectId,
+    pub delta_pos: Vec2,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -256,23 +270,45 @@ pub struct RouteCornerHovered {
 impl State {
     pub fn render_mode_for_id(&self, id: RectId) -> RenderMode {
         match self {
-            State::MovingRect(MovingRect { rect, delta_pos }) if id == *rect
-                => RenderMode::Moving { delta: *delta_pos },
+            State::MovingRect(MovingRect { rect, delta_pos }) if id == *rect => {
+                RenderMode::Moving { delta: *delta_pos }
+            }
             State::Selected(Selected { rect })
             | State::PotentialResize(PotentialResize { rect, .. })
             | State::PinLabelHovered(PinLabelHovered { rect, .. })
             | State::PinLabelGripHovered(PinLabelGripHovered { rect, .. })
-                if id == *rect => RenderMode::Selected,
-            State::PinHeadHovered(PinHeadHovered { rect, pin }) if id == *rect
-                => RenderMode::PinHeadHovered { pin: *pin },
-            State::ResizingRect(ResizingRect { rect, mode, delta_pos, .. }) if id == *rect
-                => RenderMode::Resizing { mode: *mode, delta: *delta_pos },
-            State::PinDragged(PinDragged { rect, pin, delta_pos }) if id == *rect
-                => RenderMode::PinDragged { pin: *pin, delta: *delta_pos },
-            State::EditingName(EditingName { rect }) if id == *rect
-                => RenderMode::EditingName,
-            State::EditingPinText(EditingPinText { rect, pin }) if id == *rect
-                => RenderMode::EditingPinText { pin: *pin },
+            | State::TitleControlHovered(TitleControlHovered { rect })
+                if id == *rect =>
+            {
+                RenderMode::Selected
+            }
+            State::PinHeadHovered(PinHeadHovered { rect, pin }) if id == *rect => {
+                RenderMode::PinHeadHovered { pin: *pin }
+            }
+            State::ResizingRect(ResizingRect {
+                rect,
+                mode,
+                delta_pos,
+                ..
+            }) if id == *rect => RenderMode::Resizing {
+                mode: *mode,
+                delta: *delta_pos,
+            },
+            State::PinDragged(PinDragged {
+                rect,
+                pin,
+                delta_pos,
+            }) if id == *rect => RenderMode::PinDragged {
+                pin: *pin,
+                delta: *delta_pos,
+            },
+            State::TitleControlDragged(TitleControlDragged { rect, delta_pos }) if id == *rect => {
+                RenderMode::TitleDragged { delta: *delta_pos }
+            }
+            State::EditingName(EditingName { rect }) if id == *rect => RenderMode::EditingName,
+            State::EditingPinText(EditingPinText { rect, pin }) if id == *rect => {
+                RenderMode::EditingPinText { pin: *pin }
+            }
             _ => RenderMode::Normal,
         }
     }
@@ -296,6 +332,9 @@ impl State {
                 RouteDirection::Horizontal => CursorIcon::ResizeVertical,
                 RouteDirection::Vertical => CursorIcon::ResizeHorizontal,
             },
+            State::TitleControlDragged { .. } | State::TitleControlHovered { .. } => {
+                CursorIcon::Move
+            }
             _ => CursorIcon::Default,
         }
     }

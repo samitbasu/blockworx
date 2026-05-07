@@ -1,4 +1,4 @@
-use egui::Pos2;
+use egui::{Color32, Pos2};
 
 /// A TURTLE graphics model for stateful drawing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +26,10 @@ pub enum Mark {
         radius: f32,
         fill: egui::Color32,
     },
+    Label {
+        value: f32,
+        pos: Pos2,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -48,6 +52,15 @@ pub fn draw(marks: &[Mark], painter: &egui::Painter) {
             } => {
                 painter.circle_filled(*center, *radius, *fill);
             }
+            Mark::Label { value, pos } => {
+                painter.text(
+                    *pos,
+                    egui::Align2::CENTER_CENTER,
+                    format!("{:.1}", value),
+                    egui::FontId::monospace(6.0),
+                    Color32::GREEN,
+                );
+            }
         }
     }
 }
@@ -63,6 +76,9 @@ impl Turtle {
     }
     pub fn move_to(&mut self, pos: Pos2) {
         self.state.pos = pos;
+    }
+    pub fn label(&mut self, pos: Pos2, value: f32) {
+        self.marks.push(Mark::Label { pos, value })
     }
     pub fn circle(&mut self, radius: f32, fill: egui::Color32) {
         self.marks.push(Mark::Circle {

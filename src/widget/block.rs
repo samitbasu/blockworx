@@ -2,40 +2,43 @@ use egui::{Color32, Pos2, Rect, Stroke, TextEdit, Ui, Vec2, pos2, vec2};
 
 use crate::{
     grid::{
-        GRID_SIZE, PORT_RADIUS, PORT_TEXT_SIZE, SHIM, TITLE_TEXT_SIZE, grid_rect, round_to_grid,
-        snap,
+        GRID_SIZE, PORT_RADIUS, PORT_TEXT_SIZE, TITLE_TEXT_SIZE, grid_rect, round_to_grid, snap,
     },
     state::{RenderMode, ResizeMode},
     store::*,
+    theme::get_theme,
     widget::{
         pin::{Pin, PinSide},
         render::{
-            FocusResult, GripState, draw_box_outline, draw_control_frame, draw_pin,
-            get_control_pin_bbox, get_hamburger_rect, render_pins_with_box,
+            FocusResult, GripState, block_title_position, draw_box_outline, draw_control_frame,
+            draw_pin, get_control_pin_bbox, pin_text_location, render_pins_with_box,
         },
         shape::BaseShape,
     },
 };
 
-fn draw_block_title(bbox: Rect, name: &str, ui: &mut Ui) {
+fn draw_block_title(bbox: Rect, title: &Title, ui: &mut Ui) {
+    let theme = get_theme(ui);
+    let (pos, align) = block_title_position(bbox, title);
     ui.painter().text(
-        bbox.center_top() + vec2(0.0, SHIM),
-        egui::Align2::CENTER_TOP,
-        name,
+        pos,
+        align,
+        &title.name,
         egui::FontId::monospace(TITLE_TEXT_SIZE),
-        Color32::BLACK,
+        theme.shape_title,
     );
 }
 
-fn draw_block_frame(bbox: Rect, name: &str, ui: &mut Ui) {
+fn draw_block_frame(bbox: Rect, title: &Title, ui: &mut Ui) {
+    let theme = get_theme(ui);
     draw_box_outline(
         bbox,
         None,
-        Color32::LIGHT_GRAY,
-        Stroke::new(1.0, Color32::BLUE),
+        theme.shape_fill,
+        Stroke::new(1.0, theme.shape_stroke),
         ui,
     );
-    draw_block_title(bbox, name, ui);
+    draw_block_title(bbox, title, ui);
 }
 
 pub fn resize_rect(rect: &Rect, mode: ResizeMode, delta: Vec2) -> Rect {
@@ -73,10 +76,22 @@ const NORMAL_RESIZE_MODES: &[ResizeMode] = &[
     ResizeMode::CenterBottom,
 ];
 
-// ── RectBoxNormal ─────────────────────────────────────────────────────────────
+#[derive(Copy, Clone, PartialEq, Eq, Default)]
+pub enum TitleSide {
+    Top,
+    #[default]
+    Bottom,
+}
+
+#[derive(Clone, PartialEq, Default)]
+pub struct Title {
+    pub name: String,
+    pub side: TitleSide,
+    pub offset: f32,
+}
 
 pub struct Block {
-    name: String,
+    title: Title,
     inner: Rect,
     pins: Store<PinId, Pin>,
 }
@@ -84,7 +99,10 @@ pub struct Block {
 impl Block {
     pub fn new(name: String, inner: Rect) -> Self {
         Self {
-            name,
+            title: Title {
+                name,
+                ..Title::default()
+            },
             inner: snap(inner),
             pins: Store::default(),
         }
@@ -150,10 +168,16 @@ impl Block {
 
 impl BaseShape for Block {
     fn name(&self) -> &str {
-        &self.name
+        &self.title.name
     }
     fn name_mut(&mut self) -> &mut String {
-        &mut self.name
+        &mut self.title.name
+    }
+    fn title(&self) -> Option<&Title> {
+        Some(&self.title)
+    }
+    fn title_mut(&mut self) -> Option<&mut Title> {
+        Some(&mut self.title)
     }
     fn resize_modes(&self) -> &'static [ResizeMode] {
         NORMAL_RESIZE_MODES
@@ -206,16 +230,19 @@ impl BaseShape for Block {
     fn update_pin_offset(&mut self, pin_id: PinId, delta_y: f32) {
         self.update_pin_offset_inner(pin_id, delta_y);
     }
-
+    fn title_anchor(&self) -> Option<Pos2> {
+        let (pos, _) = block_title_position(self.inner, &self.title);
+        Some(pos)
+    }
     fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult {
         let bbox = self.inner;
         match mode {
             RenderMode::Normal => {
-                draw_block_frame(bbox, &self.name, ui);
+                draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(self.pins.values(), bbox, GripState::Hidden, ui);
             }
             RenderMode::Selected => {
-                draw_block_frame(bbox, &self.name, ui);
+                draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
                 draw_control_frame(
                     bbox,
@@ -223,11 +250,12 @@ impl BaseShape for Block {
                     NORMAL_RESIZE_MODES,
                     self.add_pin_button_east_inner(),
                     self.add_pin_button_west_inner(),
+                    Some(&self.title),
                     ui,
                 );
             }
             RenderMode::PinHeadHovered { pin } => {
-                draw_block_frame(bbox, &self.name, ui);
+                draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
                 draw_control_frame(
                     bbox,
@@ -235,63 +263,68 @@ impl BaseShape for Block {
                     NORMAL_RESIZE_MODES,
                     self.add_pin_button_east_inner(),
                     self.add_pin_button_west_inner(),
+                    Some(&self.title),
                     ui,
                 );
                 if let Some(p) = self.pins.get(pin) {
+                    let theme = get_theme(ui);
                     let cb = get_control_pin_bbox(bbox, p);
                     ui.painter().circle(
                         cb.center(),
                         PORT_RADIUS,
-                        Color32::GRAY,
-                        (1.0, Color32::BLACK),
+                        theme.hover_fill,
+                        (1.0, theme.control_handle_stroke),
                     );
                 }
             }
             RenderMode::Moving { delta } => {
+                let theme = get_theme(ui);
                 let shifted = bbox.translate(delta);
                 let predicted = grid_rect(shifted);
                 draw_box_outline(
                     predicted,
                     None,
                     Color32::TRANSPARENT,
-                    Stroke::new(1.0, Color32::DARK_GRAY),
+                    Stroke::new(1.0, theme.drag_preview_stroke),
                     ui,
                 );
                 draw_box_outline(
                     shifted,
                     None,
-                    Color32::LIGHT_GRAY,
-                    Stroke::new(2.0, Color32::DARK_RED),
+                    theme.drag_active_fill,
+                    Stroke::new(2.0, theme.drag_active_stroke),
                     ui,
                 );
-                draw_block_title(shifted, &self.name, ui);
+                draw_block_title(shifted, &self.title, ui);
                 render_pins_with_box(self.pins.values(), shifted, GripState::Hidden, ui);
             }
             RenderMode::Resizing { mode, delta } => {
+                let theme = get_theme(ui);
                 let resized = resize_rect(&bbox, mode, delta);
                 let predicted = grid_rect(resized);
                 draw_box_outline(
                     predicted,
                     None,
                     Color32::TRANSPARENT,
-                    Stroke::new(1.0, Color32::DARK_GRAY),
+                    Stroke::new(1.0, theme.drag_preview_stroke),
                     ui,
                 );
                 draw_box_outline(
                     resized,
                     None,
-                    Color32::LIGHT_GRAY,
-                    Stroke::new(2.0, Color32::DARK_RED),
+                    theme.drag_active_fill,
+                    Stroke::new(2.0, theme.drag_active_stroke),
                     ui,
                 );
-                draw_block_title(resized, &self.name, ui);
+                draw_block_title(resized, &self.title, ui);
                 render_pins_with_box(self.pins.values(), resized, GripState::Hidden, ui);
             }
             RenderMode::PinDragged {
                 pin: dragged_pin,
                 delta,
             } => {
-                draw_block_frame(bbox, &self.name, ui);
+                let theme = get_theme(ui);
+                draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(
                     self.pins
                         .iter()
@@ -306,18 +339,25 @@ impl BaseShape for Block {
                     NORMAL_RESIZE_MODES,
                     self.add_pin_button_east_inner(),
                     self.add_pin_button_west_inner(),
+                    Some(&self.title),
                     ui,
                 );
                 ui.painter().line_segment(
                     [bbox.center_top(), bbox.center_bottom()],
-                    (2.0, Color32::DARK_GRAY.gamma_multiply(0.3)),
+                    (2.0, theme.pin_drag_indicator),
                 );
                 if let Some(pin) = self.pins.get(dragged_pin) {
                     draw_pin(bbox, pin, GripState::Drawn, delta.y, ui);
                 }
             }
+            RenderMode::TitleDragged { delta } => {
+                let theme = get_theme(ui);
+                let mut shifted = self.title.clone();
+                shifted.offset += delta.x;
+                draw_block_frame(bbox, &shifted, ui);
+            }
             RenderMode::EditingName => {
-                draw_block_frame(bbox, &self.name, ui);
+                draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
                 draw_control_frame(
                     bbox,
@@ -325,14 +365,17 @@ impl BaseShape for Block {
                     NORMAL_RESIZE_MODES,
                     self.add_pin_button_east_inner(),
                     self.add_pin_button_west_inner(),
+                    Some(&self.title),
                     ui,
                 );
-                let rect_name_width = self.name.len() as f32 * 10.0 + 10.0;
-                let editor_position = bbox.center_top() + vec2(-rect_name_width / 2.0, SHIM);
-                let editor_rect = Rect::from_min_size(editor_position, vec2(rect_name_width, 20.0));
+                let rect_name_width =
+                    (self.title.name.len() as f32 * TITLE_TEXT_SIZE * 0.6 + 10.0).max(20.0);
+                let (title_pos, title_align) = block_title_position(bbox, &self.title);
+                let editor_rect =
+                    title_align.anchor_size(title_pos, vec2(rect_name_width, TITLE_TEXT_SIZE));
                 let response = ui.place(
                     editor_rect,
-                    TextEdit::singleline(&mut self.name)
+                    TextEdit::singleline(&mut self.title.name)
                         .font(egui::FontId::monospace(TITLE_TEXT_SIZE))
                         .desired_width(f32::INFINITY),
                 );
@@ -343,7 +386,7 @@ impl BaseShape for Block {
                 }
             }
             RenderMode::EditingPinText { pin: pin_id } => {
-                draw_block_frame(bbox, &self.name, ui);
+                draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
                 draw_control_frame(
                     bbox,
@@ -351,6 +394,7 @@ impl BaseShape for Block {
                     NORMAL_RESIZE_MODES,
                     self.add_pin_button_east_inner(),
                     self.add_pin_button_west_inner(),
+                    Some(&self.title),
                     ui,
                 );
                 let Some(pin_ref) = self.pins.get_mut(pin_id) else {
@@ -358,12 +402,16 @@ impl BaseShape for Block {
                 };
                 let editor_width =
                     ((pin_ref.text.len() as f32 * PORT_TEXT_SIZE * 0.6 + 10.0) / 2.0).max(20.0);
-                let editor_position =
-                    get_hamburger_rect(bbox, pin_ref).expand2(vec2(editor_width, 0.0));
+                let (pin_text_pos, pin_text_align) = pin_text_location(bbox, pin_ref, 0.0);
+                let editor_position = pin_text_align
+                    .anchor_size(pin_text_pos, vec2(editor_width * 2.0, PORT_TEXT_SIZE * 1.5));
+                let theme = get_theme(ui);
                 let response = ui.place(
                     editor_position,
                     TextEdit::singleline(&mut pin_ref.text)
                         .font(egui::FontId::monospace(PORT_TEXT_SIZE))
+                        .background_color(theme.text_edit_background)
+                        .text_color(theme.text_edit_text)
                         .desired_width(f32::INFINITY),
                 );
                 if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {

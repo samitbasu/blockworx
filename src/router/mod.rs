@@ -217,6 +217,7 @@ impl RouterNG {
             // end of the edge line, so that it looks like this * ---- * rather than this *------------------*
             for edge in self.graph.edges(node) {
                 let target = edge.target();
+                let edge_weight = edge.weight();
                 let &target_pos = self.graph.node_weight(target).unwrap();
 
                 // Calculate direction and distance
@@ -248,6 +249,9 @@ impl RouterNG {
                     line_end,
                     (0.5, egui::Color32::RED.gamma_multiply(0.2)).into(),
                 );
+                let mid_point = line_start + (line_end - line_start) / 2.0;
+                let weight: f64 = (*edge_weight).into();
+                turtle.label(mid_point, weight as f32)
             }
         }
         turtle.compile()
@@ -605,6 +609,17 @@ impl RouterNG {
         // Couldn't find a path. so just connect the two points with a horizontal and vertical segment.
         vec![start, point(end.x, start.y), end]
     }
+    fn add_subpath_cost(&mut self, path: &[Point], cost: Cost) {
+        for segment in path.windows(2) {
+            let start = segment[0];
+            let end = segment[1];
+            if start.y == end.y {
+                self.add_horiz_segment(start.y, start.x, end.x, cost);
+            } else {
+                self.add_vert_segment(start.x, start.y, end.y, cost);
+            }
+        }
+    }
     pub fn waypoint_path<T>(
         &mut self,
         start: T,
@@ -619,6 +634,7 @@ impl RouterNG {
         if let Some((first_wp_id, first_wp)) = waypoints.first() {
             self.seed_channels(first_wp.pos, COST_ZERO);
             let subpath = self.path_find_with_fallback(start, first_wp.pos);
+            self.add_subpath_cost(&subpath, WIRE_COST);
             path.extend(subpath.into_iter().map(|point| TaggedPoint {
                 pos: point,
                 segment: SegmentKind::StartToWaypoint(first_wp_id),
@@ -628,6 +644,7 @@ impl RouterNG {
                 let (wp_end_id, wp_end) = windows[1];
                 self.seed_channels(wp_end.pos, COST_ZERO);
                 let subpath = self.path_find_with_fallback(wp_start.pos, wp_end.pos);
+                self.add_subpath_cost(&subpath, WIRE_COST);
                 path.extend(subpath.into_iter().map(|point| TaggedPoint {
                     segment: SegmentKind::WaypointToWaypoint(wp_start_id, wp_end_id),
                     pos: point,
@@ -636,6 +653,7 @@ impl RouterNG {
             let (last_wp_id, last_wp) = waypoints.last().unwrap_or((first_wp_id, first_wp));
             self.seed_channels(head, COST_ZERO);
             let subpath = self.path_find_with_fallback(last_wp.pos, head);
+            self.add_subpath_cost(&subpath, WIRE_COST);
             path.extend(subpath.into_iter().map(|point| TaggedPoint {
                 pos: point,
                 segment: SegmentKind::WaypointToEnd(last_wp_id),
@@ -644,6 +662,7 @@ impl RouterNG {
         } else {
             self.seed_channels(head, COST_ZERO);
             let subpath = self.path_find_with_fallback(start, head);
+            self.add_subpath_cost(&subpath, WIRE_COST);
             subpath
                 .into_iter()
                 .map(|point| TaggedPoint {

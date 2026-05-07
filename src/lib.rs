@@ -5,5 +5,6 @@ pub mod grid;
 pub mod router;
 pub mod state;
 pub mod store;
+pub mod theme;
 pub mod turtle;
 pub mod widget;

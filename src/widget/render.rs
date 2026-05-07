@@ -5,8 +5,9 @@ use egui::{
 use crate::{
     grid::*,
     state::ResizeMode,
+    theme::get_theme,
     widget::{
-        block::control_corner,
+        block::{Title, TitleSide, control_corner},
         pin::{Pin, PinSide},
     },
 };
@@ -84,30 +85,37 @@ pub fn draw_box_outline(
     }
 }
 
-pub fn draw_pin(bbox: Rect, pin: &Pin, grip_state: GripState, offset: f32, ui: &mut Ui) {
+pub fn pin_text_location(bbox: Rect, pin: &Pin, offset: f32) -> (Pos2, egui::Align2) {
     let y_coord = bbox.top() + GRID_SIZE + pin.offset + offset;
-    let (text_pos, stem, align) = match pin.side {
+    match pin.side {
         PinSide::East => (
             pos2(bbox.right() - GRID_SIZE, y_coord),
-            vec2(GRID_SIZE, 0.0),
             egui::Align2::RIGHT_CENTER,
         ),
         PinSide::West => (
             pos2(bbox.left() + GRID_SIZE, y_coord),
-            vec2(-GRID_SIZE, 0.0),
             egui::Align2::LEFT_CENTER,
         ),
+    }
+}
+
+pub fn draw_pin(bbox: Rect, pin: &Pin, grip_state: GripState, offset: f32, ui: &mut Ui) {
+    let theme = get_theme(ui);
+    let (text_pos, align) = pin_text_location(bbox, pin, offset);
+    let stem = match pin.side {
+        PinSide::East => vec2(GRID_SIZE, 0.0),
+        PinSide::West => vec2(-GRID_SIZE, 0.0),
     };
     ui.painter().line_segment(
         [text_pos + stem, text_pos + 2.0 * stem],
-        (0.5, Color32::DARK_RED),
+        (0.5, theme.pin_stem),
     );
     ui.painter().text(
         text_pos,
         align,
         &pin.text,
         egui::FontId::monospace(PORT_TEXT_SIZE),
-        Color32::BLACK,
+        theme.pin_text,
     );
     let hamburger_rect = get_hamburger_rect(bbox.translate(vec2(0.0, offset)), pin);
     match grip_state {
@@ -125,7 +133,7 @@ pub fn draw_pin(bbox: Rect, pin: &Pin, grip_state: GripState, offset: f32, ui: &
                 ui.painter().rect(
                     bun_rect,
                     bun_height / 2.0,
-                    Color32::DARK_GRAY.gamma_multiply(0.3),
+                    theme.hamburger_menu,
                     Stroke::NONE,
                     StrokeKind::Middle,
                 );
@@ -195,19 +203,34 @@ pub fn get_hamburger_rect(bbox: Rect, pin: &Pin) -> Rect {
     Rect::from_center_size(text_pos + stem / 2.0, vec2(GRIP_SIZE, GRIP_SIZE))
 }
 
+pub fn block_title_position(bbox: Rect, title: &Title) -> (Pos2, egui::Align2) {
+    match title.side {
+        TitleSide::Bottom => (
+            bbox.center_bottom() + vec2(title.offset, GRID_SIZE),
+            egui::Align2::CENTER_BOTTOM,
+        ),
+        TitleSide::Top => (
+            bbox.center_top() + vec2(title.offset, 0.0),
+            egui::Align2::CENTER_BOTTOM,
+        ),
+    }
+}
+
 pub fn draw_control_frame(
     bbox: Rect,
     port_side: Option<PinSide>,
     resize_modes: &[ResizeMode],
     add_pin_east: Option<Pos2>,
     add_pin_west: Option<Pos2>,
+    title: Option<&Title>,
     ui: &mut Ui,
 ) {
+    let theme = get_theme(ui);
     draw_box_outline(
         bbox,
         port_side,
         Color32::TRANSPARENT,
-        Stroke::new(0.5, Color32::DARK_RED),
+        Stroke::new(0.5, theme.selection_frame),
         ui,
     );
     for &mode in resize_modes {
@@ -215,27 +238,44 @@ pub fn draw_control_frame(
         ui.painter().rect(
             Rect::from_center_size(pos, vec2(CONTROL_HANDLE_SIZE, CONTROL_HANDLE_SIZE)),
             0.0,
-            Color32::WHITE,
-            (0.5, Color32::BLACK),
+            theme.control_handle_fill,
+            (0.5, theme.control_handle_stroke),
             StrokeKind::Middle,
         );
     }
     for &pin_pos in [add_pin_east, add_pin_west].iter().flatten() {
-        ui.painter()
-            .circle(pin_pos, PORT_RADIUS, Color32::WHITE, (0.5, Color32::BLACK));
+        ui.painter().circle(
+            pin_pos,
+            PORT_RADIUS,
+            theme.control_handle_fill,
+            (0.5, theme.control_handle_stroke),
+        );
         ui.painter().line_segment(
             [
                 pin_pos + vec2(-PORT_RADIUS / 2.0, 0.0),
                 pin_pos + vec2(PORT_RADIUS / 2.0, 0.0),
             ],
-            (1.0, Color32::BLACK),
+            (1.0, theme.control_handle_stroke),
         );
         ui.painter().line_segment(
             [
                 pin_pos + vec2(0.0, -PORT_RADIUS / 2.0),
                 pin_pos + vec2(0.0, PORT_RADIUS / 2.0),
             ],
-            (1.0, Color32::BLACK),
+            (1.0, theme.control_handle_stroke),
+        );
+    }
+    if let Some(title) = title {
+        let (title_anchor_pos, align) = block_title_position(bbox, title);
+        ui.painter().rect(
+            Rect::from_center_size(
+                title_anchor_pos,
+                vec2(CONTROL_HANDLE_SIZE, CONTROL_HANDLE_SIZE),
+            ),
+            0.0,
+            theme.control_handle_fill,
+            (0.5, theme.control_handle_stroke),
+            StrokeKind::Middle,
         );
     }
 }

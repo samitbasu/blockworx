@@ -4,6 +4,7 @@ use crate::{
     grid::{GRID_SIZE, PORT_HEIGHT, PORT_RADIUS, PORT_TEXT_SIZE, grid_rect, snap},
     state::{RenderMode, ResizeMode},
     store::PinId,
+    theme::get_theme,
     widget::{
         block::resize_rect,
         pin::{Pin, PinSide},
@@ -107,13 +108,14 @@ impl BaseShape for Port {
     fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult {
         let bbox = self.inner;
         let side = Some(self.pin.side);
+        let theme = get_theme(ui);
 
         let draw_normal = |bbox: Rect, name: &str, side: Option<PinSide>, ui: &mut Ui| {
             draw_box_outline(
                 bbox,
                 side,
-                Color32::LIGHT_GRAY,
-                Stroke::new(1.0, Color32::BLUE),
+                theme.shape_fill,
+                Stroke::new(1.0, theme.shape_stroke),
                 ui,
             );
             ui.painter().text(
@@ -121,28 +123,28 @@ impl BaseShape for Port {
                 egui::Align2::CENTER_CENTER,
                 name,
                 egui::FontId::monospace(PORT_TEXT_SIZE),
-                Color32::BLACK,
+                theme.pin_text,
             );
         };
 
         match mode {
-            RenderMode::Normal => {
+            RenderMode::Normal | RenderMode::TitleDragged { .. } => {
                 draw_normal(bbox, &self.pin.text, side, ui);
             }
             RenderMode::Selected => {
                 draw_normal(bbox, &self.pin.text, side, ui);
-                draw_control_frame(bbox, side, PORT_RESIZE_MODES, None, None, ui);
+                draw_control_frame(bbox, side, PORT_RESIZE_MODES, None, None, None, ui);
             }
             RenderMode::PinHeadHovered { pin } => {
                 draw_normal(bbox, &self.pin.text, side, ui);
-                draw_control_frame(bbox, side, PORT_RESIZE_MODES, None, None, ui);
+                draw_control_frame(bbox, side, PORT_RESIZE_MODES, None, None, None, ui);
                 if let Some(p) = self.pin(pin) {
                     let cb = get_control_pin_bbox(bbox, p);
                     ui.painter().circle(
                         cb.center(),
                         PORT_RADIUS,
-                        Color32::GRAY,
-                        (1.0, Color32::BLACK),
+                        theme.hover_fill,
+                        (1.0, theme.control_handle_stroke),
                     );
                 }
             }
@@ -153,14 +155,14 @@ impl BaseShape for Port {
                     predicted,
                     side,
                     Color32::TRANSPARENT,
-                    Stroke::new(1.0, Color32::DARK_GRAY),
+                    Stroke::new(1.0, theme.drag_preview_stroke),
                     ui,
                 );
                 draw_box_outline(
                     shifted,
                     side,
-                    Color32::LIGHT_GRAY,
-                    Stroke::new(2.0, Color32::DARK_RED),
+                    theme.drag_active_fill,
+                    Stroke::new(2.0, theme.drag_active_stroke),
                     ui,
                 );
                 ui.painter().text(
@@ -168,7 +170,7 @@ impl BaseShape for Port {
                     egui::Align2::CENTER_CENTER,
                     &self.pin.text,
                     egui::FontId::monospace(PORT_TEXT_SIZE),
-                    Color32::BLACK,
+                    theme.pin_text,
                 );
             }
             RenderMode::Resizing { mode, delta } => {
@@ -178,14 +180,14 @@ impl BaseShape for Port {
                     predicted,
                     side,
                     Color32::TRANSPARENT,
-                    Stroke::new(1.0, Color32::DARK_GRAY),
+                    Stroke::new(1.0, theme.drag_preview_stroke),
                     ui,
                 );
                 draw_box_outline(
                     resized,
                     side,
-                    Color32::LIGHT_GRAY,
-                    Stroke::new(2.0, Color32::DARK_RED),
+                    theme.drag_active_fill,
+                    Stroke::new(2.0, theme.drag_active_stroke),
                     ui,
                 );
                 ui.painter().text(
@@ -193,19 +195,19 @@ impl BaseShape for Port {
                     egui::Align2::CENTER_CENTER,
                     &self.pin.text,
                     egui::FontId::monospace(PORT_TEXT_SIZE),
-                    Color32::BLACK,
+                    theme.pin_text,
                 );
             }
             RenderMode::PinDragged { .. } => {
                 draw_normal(bbox, &self.pin.text, side, ui);
                 ui.painter().line_segment(
                     [bbox.center_top(), bbox.center_bottom()],
-                    (2.0, Color32::DARK_GRAY.gamma_multiply(0.3)),
+                    (2.0, theme.pin_drag_indicator),
                 );
             }
             RenderMode::EditingName | RenderMode::EditingPinText { .. } => {
                 draw_normal(bbox, &self.pin.text, side, ui);
-                draw_control_frame(bbox, side, PORT_RESIZE_MODES, None, None, ui);
+                draw_control_frame(bbox, side, PORT_RESIZE_MODES, None, None, None, ui);
                 let text_width =
                     (self.pin.text.len() as f32 * PORT_TEXT_SIZE * 0.6 + 20.0).max(40.0);
                 let editor_position =

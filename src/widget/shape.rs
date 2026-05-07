@@ -6,7 +6,7 @@ use crate::{
     state::{RenderMode, ResizeMode},
     store::PinId,
     widget::{
-        block::Block,
+        block::{Block, Title},
         pin::{Pin, PinSide},
         port::Port,
         render::FocusResult,
@@ -19,6 +19,12 @@ use crate::{
 /// impl for those methods (which means they have no pins).
 #[enum_dispatch(Shape)]
 pub trait BaseShape {
+    fn title(&self) -> Option<&Title> {
+        None
+    }
+    fn title_mut(&mut self) -> Option<&mut Title> {
+        None
+    }
     fn name(&self) -> &str;
     fn name_mut(&mut self) -> &mut String;
     fn resize_modes(&self) -> &'static [ResizeMode];
@@ -77,6 +83,9 @@ pub trait BaseShape {
     }
     fn update_pin_offset(&mut self, _pin_id: PinId, _delta_y: f32) {}
     fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult;
+    fn title_anchor(&self) -> Option<Pos2> {
+        None
+    }
 }
 
 #[enum_dispatch]

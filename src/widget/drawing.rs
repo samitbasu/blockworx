@@ -11,10 +11,11 @@ use crate::{
     router::{RouterNG, RouterNGBuilder, TaggedPoint, WIRE_COST, cost::COST_ZERO},
     state::*,
     store::*,
+    theme::get_theme,
     turtle::Mark,
     widget::{
         auto_route::AutoRoute,
-        block::{Block, control_corner, resize_rect},
+        block::{Block, TitleSide, control_corner, resize_rect},
         direction::RouteDirection,
         pin::PinSide,
         port::Port,
@@ -130,17 +131,18 @@ impl Drawing {
         ret
     }
     fn render_route(&self, ui: &mut Ui, route: &AutoRoute, mode: RouteRenderMode) {
+        let theme = get_theme(ui);
         let route_stroke = match mode {
-            RouteRenderMode::Normal => (1.7, Color32::DARK_GREEN),
-            RouteRenderMode::Highlighted => (2.5, Color32::LIGHT_GREEN.gamma_multiply(0.3)),
-            RouteRenderMode::Selected => (2.5, Color32::LIGHT_GREEN),
+            RouteRenderMode::Normal => (1.7, theme.route_normal),
+            RouteRenderMode::Highlighted => (2.5, theme.route_highlighted),
+            RouteRenderMode::Selected => (2.5, theme.route_selected),
         };
         let points = render_path_with_chamfered_corners(&route.points());
         points.render(ui, route_stroke);
         let text_color = match mode {
-            RouteRenderMode::Normal => Color32::DARK_GREEN,
-            RouteRenderMode::Highlighted => Color32::LIGHT_GREEN.gamma_multiply(0.3),
-            RouteRenderMode::Selected => Color32::LIGHT_GREEN,
+            RouteRenderMode::Normal => theme.route_normal,
+            RouteRenderMode::Highlighted => theme.route_highlighted,
+            RouteRenderMode::Selected => theme.route_selected,
         };
         for (_, label) in route.iter_labels() {
             let loc_and_direction = route.map_linear_distance_to_position(label.linear_distance);
@@ -163,7 +165,7 @@ impl Drawing {
                             text_color,
                         )
                     });
-                    let mut text = TextShape::new(pos, galley, Color32::WHITE)
+                    let mut text = TextShape::new(pos, galley, text_color)
                         .with_angle_and_anchor(std::f32::consts::FRAC_PI_2, Align2::LEFT_BOTTOM);
                     let text_rect = text.visual_bounding_rect();
                     let v_delta = text_rect.center().y - pos.y;
@@ -177,16 +179,16 @@ impl Drawing {
                 ui.painter().circle(
                     wp.pos,
                     PORT_RADIUS,
-                    Color32::LIGHT_GREEN.linear_multiply(0.5),
-                    (0.5, Color32::BLACK),
+                    theme.waypoint_fill,
+                    (0.5, theme.control_handle_stroke),
                 );
             }
             for dh in route.drag_handles() {
                 ui.painter().rect(
                     Rect::from_center_size(dh, vec2(PORT_RADIUS * 2.0, PORT_RADIUS * 2.0)),
                     PORT_RADIUS / 4.0,
-                    Color32::LIGHT_GREEN.linear_multiply(0.5),
-                    (0.5, Color32::BLACK),
+                    theme.waypoint_fill,
+                    (0.5, theme.control_handle_stroke),
                     StrokeKind::Middle,
                 );
             }
@@ -194,16 +196,16 @@ impl Drawing {
                 Self::draw_text_anchor(
                     ui,
                     ta,
-                    Color32::LIGHT_GREEN.linear_multiply(0.5),
-                    (0.5, Color32::BLACK),
+                    theme.waypoint_fill,
+                    (0.5, theme.control_handle_stroke),
                 );
             }
             for at in route.all_add_text_buttons() {
                 Self::draw_add_text_button(
                     ui,
                     at.pos,
-                    Color32::LIGHT_YELLOW.linear_multiply(0.5),
-                    (0.5, Color32::BLACK),
+                    theme.add_button_fill,
+                    (0.5, theme.control_handle_stroke),
                 );
             }
         }
@@ -223,6 +225,7 @@ impl Drawing {
         ));
     }
     fn draw_add_text_button(ui: &mut Ui, at: Pos2, fill: Color32, stroke: impl Into<Stroke>) {
+        let theme = get_theme(ui);
         let stroke: Stroke = stroke.into();
         ui.painter().rect(
             Rect::from_center_size(at, vec2(PORT_RADIUS * 2.0, PORT_RADIUS * 2.0)),
@@ -236,24 +239,19 @@ impl Drawing {
             Align2::CENTER_CENTER,
             "T",
             egui::FontId::monospace(ROUTE_TEXT_SIZE * 0.8),
-            Color32::LIGHT_YELLOW,
+            theme.route_in_progress,
         );
     }
     pub fn render(&mut self, ui: &mut Ui) {
+        let theme = get_theme(ui);
         ui.output_mut(|o| o.cursor_icon = self.state.cursor());
         (-100..=100).map(|y| y as f32 * GRID_SIZE).for_each(|h| {
-            ui.painter().hline(
-                -10_000.0f32..=10_000.0f32,
-                h,
-                (0.15, Color32::LIGHT_GRAY.linear_multiply(0.3)),
-            );
+            ui.painter()
+                .hline(-10_000.0f32..=10_000.0f32, h, (0.15, theme.grid_line));
         });
         (-100..=100).map(|x| x as f32 * GRID_SIZE).for_each(|v| {
-            ui.painter().vline(
-                v,
-                -10_000.0f32..=10_000.0f32,
-                (0.15, Color32::LIGHT_GRAY.linear_multiply(0.3)),
-            );
+            ui.painter()
+                .vline(v, -10_000.0f32..=10_000.0f32, (0.15, theme.grid_line));
         });
         crate::turtle::draw(&self.debug_marks, ui.painter());
         for route in self.auto_routes.values() {
@@ -271,7 +269,7 @@ impl Drawing {
                 rect,
                 3.0,
                 Color32::TRANSPARENT,
-                (1.0, Color32::DARK_RED),
+                (1.0, theme.selection_frame),
                 StrokeKind::Middle,
             );
         }
@@ -282,10 +280,10 @@ impl Drawing {
                 .map(|p| p.pos.into())
                 .collect::<Vec<Pos2>>();
             let points = render_path_with_chamfered_corners(&points);
-            points.render(ui, (0.5, Color32::LIGHT_YELLOW));
+            points.render(ui, (0.5, theme.route_in_progress));
             inner.waypoints.iter().for_each(|(_, wp)| {
                 ui.painter()
-                    .circle_filled(wp.pos, PORT_RADIUS, Color32::LIGHT_YELLOW);
+                    .circle_filled(wp.pos, PORT_RADIUS, theme.route_in_progress);
             });
         }
         if let State::ProposedAutoRoute(inner) = &self.state {
@@ -295,21 +293,21 @@ impl Drawing {
                 .map(|p| p.pos.into())
                 .collect::<Vec<Pos2>>();
             let points = render_path_with_chamfered_corners(&points);
-            points.render(ui, (1.5, Color32::LIGHT_YELLOW));
+            points.render(ui, (1.5, theme.route_in_progress));
             if let Some(start_pos) = self.anchor(inner.start) {
                 ui.painter().circle(
                     start_pos,
                     PORT_RADIUS,
-                    Color32::DARK_RED,
-                    (0.5, Color32::DARK_RED),
+                    theme.route_proposed_endpoint,
+                    (0.5, theme.route_proposed_endpoint),
                 );
             }
             if let Some(end_pos) = self.anchor(inner.finish) {
                 ui.painter().circle(
                     end_pos,
                     PORT_RADIUS,
-                    Color32::DARK_RED,
-                    (0.5, Color32::DARK_RED),
+                    theme.route_proposed_endpoint,
+                    (0.5, theme.route_proposed_endpoint),
                 );
             }
         }
@@ -333,10 +331,8 @@ impl Drawing {
                 let edge_dir = (edge_end - edge_start).normalized();
                 let edge_start = edge_start + edge_dir * PORT_RADIUS;
                 let edge_end = edge_end - edge_dir * PORT_RADIUS;
-                ui.painter().line_segment(
-                    [edge_start, edge_end],
-                    (2.5, Color32::LIGHT_GREEN.gamma_multiply(0.7)),
-                );
+                ui.painter()
+                    .line_segment([edge_start, edge_end], (2.5, theme.route_edge_highlight));
             }
         }
         if let State::RouteCornerHovered(target) = &self.state
@@ -348,8 +344,8 @@ impl Drawing {
                 ui.painter().circle(
                     edge_1_end,
                     PORT_RADIUS,
-                    Color32::LIGHT_RED.linear_multiply(0.5),
-                    (0.5, Color32::BLACK),
+                    theme.corner_highlight_fill,
+                    (0.5, theme.control_handle_stroke),
                 );
             }
         }
@@ -362,7 +358,7 @@ impl Drawing {
                 .map(snap_to_grid)
                 .collect::<Vec<Pos2>>();
             let points = render_path_with_chamfered_corners(&projected_path);
-            points.render(ui, (1.5, Color32::GRAY.gamma_multiply(0.2)));
+            points.render(ui, (1.5, theme.edge_drag_preview));
         }
         if let State::WaypointHovered(target) = &self.state
             && let Some(route) = self.auto_routes.get(target.route)
@@ -372,8 +368,8 @@ impl Drawing {
                 ui.painter().circle(
                     wp.pos,
                     PORT_RADIUS,
-                    Color32::LIGHT_GREEN.linear_multiply(0.5),
-                    (0.5, Color32::WHITE),
+                    theme.waypoint_fill,
+                    (0.5, theme.control_handle_fill),
                 );
             }
         }
@@ -385,8 +381,8 @@ impl Drawing {
                 ui.painter().circle(
                     wp.pos,
                     PORT_RADIUS,
-                    Color32::LIGHT_GREEN.linear_multiply(0.5),
-                    (1.0, Color32::WHITE),
+                    theme.waypoint_fill,
+                    (1.0, theme.control_handle_fill),
                 );
             }
         }
@@ -398,12 +394,7 @@ impl Drawing {
                 let loc_and_direction =
                     route.map_linear_distance_to_position(label.linear_distance);
                 let pos = loc_and_direction.location;
-                Self::draw_text_anchor(
-                    ui,
-                    pos,
-                    Color32::LIGHT_GREEN.linear_multiply(0.5),
-                    (0.5, Color32::GRAY),
-                );
+                Self::draw_text_anchor(ui, pos, theme.waypoint_fill, (0.5, theme.hover_fill));
             }
         }
         if let State::TextAnchorDragged(target) = &self.state
@@ -417,8 +408,8 @@ impl Drawing {
                 Self::draw_text_anchor(
                     ui,
                     pos,
-                    Color32::LIGHT_GREEN.linear_multiply(0.5),
-                    (1.0, Color32::WHITE),
+                    theme.waypoint_fill,
+                    (1.0, theme.control_handle_fill),
                 );
             }
         }
@@ -444,8 +435,8 @@ impl Drawing {
             Self::draw_add_text_button(
                 ui,
                 target.button.pos,
-                Color32::LIGHT_YELLOW,
-                (0.5, Color32::WHITE),
+                theme.route_in_progress,
+                (0.5, theme.control_handle_fill),
             );
         }
     }
@@ -676,6 +667,11 @@ impl Drawing {
                     return PotentialResize { rect, mode }.into();
                 }
             }
+            if let Some(title_position_anchor) = bbox.title_anchor() {
+                if hover_pos.distance(title_position_anchor) < MOVE_HOVER_DISTANCE {
+                    return TitleControlHovered { rect }.into();
+                }
+            }
             if let Some(state) = bbox.find_pin(|pid, pin| {
                 let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin);
                 if pin_bbox.contains(hover_pos) {
@@ -717,6 +713,29 @@ impl Drawing {
         }
         PotentialResize { rect, mode }.into()
     }
+    fn handle_title_control_hovered(
+        &self,
+        inner: TitleControlHovered,
+        response: Response,
+    ) -> State {
+        let TitleControlHovered { rect } = inner;
+        if let Some(hover_pos) = response.hover_pos()
+            && let Some(bbox) = self.rect(rect)
+            && let Some(title_anchor) = bbox.title_anchor()
+            && hover_pos.distance(title_anchor) >= MOVE_HOVER_DISTANCE
+        {
+            return Selected { rect }.into();
+        }
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            return TitleControlDragged {
+                rect,
+                delta_pos: vec2(0.0, 0.0),
+            }
+            .into();
+        }
+        TitleControlHovered { rect }.into()
+    }
+
     fn handle_pin_label_hovered(&self, inner: PinLabelHovered, response: Response) -> State {
         let PinLabelHovered { rect, pin } = inner;
         if let Some(hover_pos) = response.hover_pos()
@@ -922,6 +941,42 @@ impl Drawing {
         }
         self.handle_route_hover_check(inner.route, response)
     }
+
+    fn handle_title_control_dragged(
+        &mut self,
+        inner: TitleControlDragged,
+        response: Response,
+    ) -> State {
+        let TitleControlDragged { rect, delta_pos } = inner;
+        if let Some(pos) = response.interact_pointer_pos()
+            && let Some(rbox) = self.rect_mut(rect)
+        {
+            let center_line = rbox.gui_rect().center().y;
+            if let Some(title_ref) = rbox.title_mut() {
+                if pos.y < center_line {
+                    title_ref.side = TitleSide::Top;
+                } else {
+                    title_ref.side = TitleSide::Bottom;
+                }
+            }
+        }
+        if response.dragged_by(egui::PointerButton::Primary) {
+            let delta = response.drag_delta();
+            return TitleControlDragged {
+                rect,
+                delta_pos: delta_pos + delta,
+            }
+            .into();
+        } else if (response.drag_stopped_by(egui::PointerButton::Primary) || !response.dragged())
+            && let Some(bbox) = self.rect_mut(inner.rect)
+            && let Some(title) = bbox.title_mut()
+        {
+            title.offset += delta_pos.x;
+            return Selected { rect: inner.rect }.into();
+        }
+        inner.into()
+    }
+
     fn handle_text_anchor_dragged(
         &mut self,
         inner: TextAnchorDragged,
@@ -1269,6 +1324,8 @@ impl Drawing {
             State::WaypointHovered(inner) => self.handle_waypoint_hovered(inner, response),
             State::TextAnchorHovered(inner) => self.handle_text_anchor_hovered(inner, response),
             State::TextAnchorDragged(inner) => self.handle_text_anchor_dragged(inner, response),
+            State::TitleControlHovered(inner) => self.handle_title_control_hovered(inner, response),
+            State::TitleControlDragged(inner) => self.handle_title_control_dragged(inner, response),
             State::AddTextButtonHovered(inner) => {
                 self.handle_add_text_button_hovered(inner, response)
             }
