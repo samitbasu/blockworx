@@ -2,7 +2,11 @@ use std::path::PathBuf;
 
 use egui::{DragPanButtons, Rect, Scene};
 
-use crate::{theme::Theme, widget::drawing::Drawing};
+use crate::{
+    grid::GRID_SIZE,
+    theme::Theme,
+    widget::drawing::{Drawing, Mode},
+};
 
 enum Pane {
     Drawing,
@@ -37,6 +41,39 @@ impl eframe::App for App {
                 self.drawing.render(ui);
             });
             self.drawing.update_state(response.response);
+            let screen_height = ctx.content_rect().height();
+            egui::Area::new(egui::Id::new("mode_toolbar"))
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, GRID_SIZE))
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            for mode in [
+                                Mode::Move,
+                                Mode::Select,
+                                Mode::Block,
+                                Mode::Pin,
+                                Mode::Route,
+                            ] {
+                                let label = match mode {
+                                    Mode::Move => "Move",
+                                    Mode::Select => "Select",
+                                    Mode::Block => "Block",
+                                    Mode::Pin => "Pin",
+                                    Mode::Route => "Route",
+                                };
+                                if ui
+                                    .add(
+                                        egui::Button::new(label)
+                                            .selected(self.drawing.mode == mode),
+                                    )
+                                    .clicked()
+                                {
+                                    self.drawing.mode = mode;
+                                }
+                            }
+                        });
+                    });
+                });
         });
     }
 }

@@ -30,6 +30,16 @@ use crate::{
 
 const GRIP_SHIM: f32 = 4.0;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Mode {
+    Move,
+    #[default]
+    Select,
+    Block,
+    Pin,
+    Route,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct LineAnchor {
     pub rect: RectId,
@@ -43,6 +53,7 @@ pub struct Drawing {
     state: State,
     auto_route: Vec<TaggedPoint>,
     debug_marks: Vec<Mark>,
+    pub mode: Mode,
 }
 
 enum RouteRenderMode {
@@ -634,11 +645,7 @@ impl Drawing {
         }
         Action::TransitionTo(State::AddText)
     }
-    fn handle_add_text_hovered_route(
-        &self,
-        inner: AddTextHoveredRoute,
-        event: Event,
-    ) -> Action {
+    fn handle_add_text_hovered_route(&self, inner: AddTextHoveredRoute, event: Event) -> Action {
         match event {
             Event::Clicked { pos } => Action::AllocateLabelAndEdit {
                 route: inner.route,
@@ -701,9 +708,21 @@ impl Drawing {
     }
     fn drag_start_on_canvas(&self, pos: Pos2) -> Action {
         if let Some(id) = self.rect_at(pos) {
-            Action::TransitionTo(MovingRect { rect: id, delta_pos: Vec2::ZERO }.into())
+            Action::TransitionTo(
+                MovingRect {
+                    rect: id,
+                    delta_pos: Vec2::ZERO,
+                }
+                .into(),
+            )
         } else {
-            Action::TransitionTo(AddingRect { start_pos: pos, end_pos: snap_to_grid(pos) }.into())
+            Action::TransitionTo(
+                AddingRect {
+                    start_pos: pos,
+                    end_pos: snap_to_grid(pos),
+                }
+                .into(),
+            )
         }
     }
     fn handle_selected_state(&self, inner: Selected, event: Event) -> Action {
@@ -749,7 +768,12 @@ impl Drawing {
                     })
                 {
                     return Action::TransitionTo(
-                        PinDragged { rect, pin: lid, delta_pos: Vec2::ZERO }.into(),
+                        PinDragged {
+                            rect,
+                            pin: lid,
+                            delta_pos: Vec2::ZERO,
+                        }
+                        .into(),
                     );
                 }
                 return self.drag_start_on_canvas(pos);
@@ -813,18 +837,19 @@ impl Drawing {
             }
             Event::DragStarted { .. } => {
                 return Action::TransitionTo(
-                    ResizingRect { rect, mode, delta_pos: Vec2::ZERO }.into(),
+                    ResizingRect {
+                        rect,
+                        mode,
+                        delta_pos: Vec2::ZERO,
+                    }
+                    .into(),
                 );
             }
             _ => {}
         }
         Action::TransitionTo(PotentialResize { rect, mode }.into())
     }
-    fn handle_title_control_hovered(
-        &self,
-        inner: TitleControlHovered,
-        event: Event,
-    ) -> Action {
+    fn handle_title_control_hovered(&self, inner: TitleControlHovered, event: Event) -> Action {
         let TitleControlHovered { rect } = inner;
         match event {
             Event::HoverAt(hover_pos) => {
@@ -837,7 +862,11 @@ impl Drawing {
             }
             Event::DragStarted { .. } => {
                 return Action::TransitionTo(
-                    TitleControlDragged { rect, delta_pos: Vec2::ZERO }.into(),
+                    TitleControlDragged {
+                        rect,
+                        delta_pos: Vec2::ZERO,
+                    }
+                    .into(),
                 );
             }
             _ => {}
@@ -878,16 +907,19 @@ impl Drawing {
         }
         Action::TransitionTo(route.into())
     }
-    fn handle_pin_label_grip_hovered(
-        &self,
-        inner: PinLabelGripHovered,
-        event: Event,
-    ) -> Action {
+    fn handle_pin_label_grip_hovered(&self, inner: PinLabelGripHovered, event: Event) -> Action {
         let PinLabelGripHovered { rect, pin } = inner;
         match event {
             Event::DragStarted { .. } | Event::Dragging { .. } => {
                 eprintln!("Starting to drag port label grip");
-                return Action::TransitionTo(PinDragged { rect, pin, delta_pos: Vec2::ZERO }.into());
+                return Action::TransitionTo(
+                    PinDragged {
+                        rect,
+                        pin,
+                        delta_pos: Vec2::ZERO,
+                    }
+                    .into(),
+                );
             }
             Event::HoverAt(hover_pos) => {
                 if let Some(bbox) = self.rect(rect)
@@ -931,11 +963,7 @@ impl Drawing {
         }
         Action::TransitionTo(PinHeadHovered { rect, pin }.into())
     }
-    fn handle_route_corner_hovered(
-        &self,
-        inner: RouteCornerHovered,
-        event: Event,
-    ) -> Action {
+    fn handle_route_corner_hovered(&self, inner: RouteCornerHovered, event: Event) -> Action {
         match event {
             Event::DragStarted { pos } | Event::Dragging { pos, .. } => {
                 eprintln!("Starting to drag route corner");
@@ -999,11 +1027,7 @@ impl Drawing {
         }
         self.handle_route_hover_check(target.id, event)
     }
-    fn handle_add_text_button_hovered(
-        &self,
-        inner: AddTextButtonHovered,
-        event: Event,
-    ) -> Action {
+    fn handle_add_text_button_hovered(&self, inner: AddTextButtonHovered, event: Event) -> Action {
         if matches!(event, Event::Clicked { .. }) {
             return Action::AddRouteText {
                 route: inner.route,
@@ -1017,7 +1041,12 @@ impl Drawing {
             Event::DragStarted { .. } | Event::Dragging { .. } => {
                 eprintln!("Starting to drag text anchor");
                 return Action::TransitionTo(
-                    TextAnchorDragged { route: inner.route, label_id: inner.label_id, delta_pos: Vec2::ZERO }.into(),
+                    TextAnchorDragged {
+                        route: inner.route,
+                        label_id: inner.label_id,
+                        delta_pos: Vec2::ZERO,
+                    }
+                    .into(),
                 );
             }
             Event::DoubleClicked { .. } => {
@@ -1050,11 +1079,7 @@ impl Drawing {
         }
         Action::TransitionTo(Selected { rect: inner.rect }.into())
     }
-    fn handle_title_control_dragged(
-        &self,
-        inner: TitleControlDragged,
-        event: Event,
-    ) -> Action {
+    fn handle_title_control_dragged(&self, inner: TitleControlDragged, event: Event) -> Action {
         let TitleControlDragged { rect, delta_pos } = inner;
         match event {
             Event::Dragging { delta, .. } => Action::TransitionTo(
@@ -1423,13 +1448,23 @@ impl Drawing {
                 if let Some(r) = self.auto_routes.get_mut(route) {
                     r.lock_waypoint(waypoint_id);
                 }
-                self.state = WaypointDragged { route, waypoint: waypoint_id, delta_pos: Vec2::ZERO }.into();
+                self.state = WaypointDragged {
+                    route,
+                    waypoint: waypoint_id,
+                    delta_pos: Vec2::ZERO,
+                }
+                .into();
             }
             Action::AddCornerWaypointAndDrag { route, pos } => {
                 self.state = if let Some(r) = self.auto_routes.get_mut(route) {
                     let waypoint_id = r.add_waypoint(snap_to_grid(pos));
                     r.lock_waypoint(waypoint_id);
-                    WaypointDragged { route, waypoint: waypoint_id, delta_pos: Vec2::ZERO }.into()
+                    WaypointDragged {
+                        route,
+                        waypoint: waypoint_id,
+                        delta_pos: Vec2::ZERO,
+                    }
+                    .into()
                 } else {
                     State::Idle
                 };
@@ -1448,7 +1483,12 @@ impl Drawing {
                     route.lock_waypoint(wp1);
                     route.lock_waypoint(wp2);
                     self.state = if wp1 == wp2 {
-                        WaypointDragged { route: route_id, waypoint: wp1, delta_pos: Vec2::ZERO }.into()
+                        WaypointDragged {
+                            route: route_id,
+                            waypoint: wp1,
+                            delta_pos: Vec2::ZERO,
+                        }
+                        .into()
                     } else {
                         RouteEdgeDragged {
                             id: route_id,
@@ -1578,7 +1618,12 @@ impl Drawing {
                     }
                     r.update_label_positions();
                 }
-                self.state = TextAnchorDragged { route, label_id, delta_pos: Vec2::ZERO }.into();
+                self.state = TextAnchorDragged {
+                    route,
+                    label_id,
+                    delta_pos: Vec2::ZERO,
+                }
+                .into();
             }
             Action::FinalizeTextAnchorDrag { route } => {
                 if let Some(r) = self.auto_routes.get_mut(route) {

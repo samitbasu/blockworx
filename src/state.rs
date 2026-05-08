@@ -324,11 +324,13 @@ impl State {
                 ResizeMode::LeftTop | ResizeMode::RightBottom => CursorIcon::ResizeNwSe,
                 ResizeMode::RightTop | ResizeMode::LeftBottom => CursorIcon::ResizeNeSw,
             },
+            State::TitleHovered { .. } | State::TitleControlHovered { .. } => {
+                CursorIcon::PointingHand
+            }
             State::PinLabelHovered { .. }
             | State::RouteLabelHovered { .. }
             | State::AddText
-            | State::AddTextHoveredRoute { .. }
-            | State::TitleHovered { .. } => CursorIcon::Text,
+            | State::AddTextHoveredRoute { .. } => CursorIcon::Text,
             State::PinLabelGripHovered { .. } => CursorIcon::Grab,
             State::PinHeadHovered { .. } => CursorIcon::Crosshair,
             State::PinDragged { .. } => CursorIcon::Grabbing,
@@ -336,9 +338,7 @@ impl State {
                 RouteDirection::Horizontal => CursorIcon::ResizeVertical,
                 RouteDirection::Vertical => CursorIcon::ResizeHorizontal,
             },
-            State::TitleControlDragged { .. } | State::TitleControlHovered { .. } => {
-                CursorIcon::Move
-            }
+            State::TitleControlDragged { .. } => CursorIcon::Move,
             _ => CursorIcon::Default,
         }
     }
