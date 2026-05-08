@@ -1,7 +1,6 @@
 - Fix routing issues where routes "collapse" back on themselves at waypoints.
 - Add tool bar 
-- Edit block for text objects needs to be fixed in location
--
+- Decouple from egui.
 
 - Tool bar should have:
 

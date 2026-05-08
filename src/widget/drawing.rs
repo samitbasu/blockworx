@@ -1,5 +1,5 @@
 use egui::{
-    Align2, Color32, PointerButton, Pos2, Rect, Response, Stroke, StrokeKind, TextEdit, Ui,
+    Align2, Color32, Pos2, Rect, Response, Stroke, StrokeKind, TextEdit, Ui, Vec2,
     epaint::TextShape, pos2, vec2,
 };
 
@@ -14,7 +14,7 @@ use crate::{
     theme::get_theme,
     turtle::Mark,
     widget::{
-        auto_route::AutoRoute,
+        auto_route::{AddTextButton, AutoRoute},
         block::{Block, TitleSide, control_corner, resize_rect},
         direction::RouteDirection,
         pin::PinSide,
@@ -42,8 +42,6 @@ pub struct Drawing {
     auto_routes: Store<RouteId, AutoRoute>,
     state: State,
     auto_route: Vec<TaggedPoint>,
-    reroute: bool,
-    ripup_set: Vec<RouteId>,
     debug_marks: Vec<Mark>,
 }
 
@@ -51,6 +49,133 @@ enum RouteRenderMode {
     Normal,
     Highlighted,
     Selected,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Event {
+    HoverAt(Pos2),
+    DragStarted { pos: Pos2 },
+    Dragging { pos: Pos2, delta: Vec2 },
+    DragStopped,
+    Clicked { pos: Pos2 },
+    DoubleClicked { pos: Pos2 },
+}
+
+fn compute_event(response: &Response) -> Option<Event> {
+    if response.double_clicked()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        Some(Event::DoubleClicked { pos })
+    } else if response.clicked()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        Some(Event::Clicked { pos })
+    } else if response.drag_started()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        Some(Event::DragStarted { pos })
+    } else if response.dragged()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        Some(Event::Dragging {
+            pos,
+            delta: response.drag_delta(),
+        })
+    } else if response.drag_stopped() {
+        Some(Event::DragStopped)
+    } else if response.hovered()
+        && let Some(pos) = response.hover_pos()
+    {
+        Some(Event::HoverAt(pos))
+    } else {
+        None
+    }
+}
+
+enum Action {
+    TransitionTo(State),
+    TransitionAndUpdate(State),
+    MoveRect {
+        inner: MovingRect,
+        next: State,
+    },
+    ResizeRect {
+        inner: ResizingRect,
+        next: State,
+    },
+    MovePin {
+        rect: RectId,
+        pin: PinId,
+        side: PinSide,
+        delta_pos: Vec2,
+    },
+    AddRect {
+        inner: AddingRect,
+    },
+    AllocateLabelAndEdit {
+        route: RouteId,
+        pos: Pos2,
+    },
+    StartRouteCornerDrag {
+        waypoint_id: WaypointId,
+        route: RouteId,
+    },
+    AddCornerWaypointAndDrag {
+        route: RouteId,
+        pos: Pos2,
+    },
+    FinalizePinDrag {
+        rect: RectId,
+        pin: PinId,
+        delta_y: f32,
+    },
+    AddPin {
+        rect: RectId,
+        side: PinSide,
+    },
+    StartEdgeDrag {
+        route: RouteId,
+        edge_id: EdgeId,
+    },
+    AddRouteText {
+        route: RouteId,
+        button: AddTextButton,
+    },
+    MoveTitle {
+        rect: RectId,
+        offset: f32,
+        side: TitleSide,
+    },
+    ShiftRouteLabel {
+        route: RouteId,
+        label_id: WireLabelId,
+        linear_distance_delta: f32,
+    },
+    CommitProposedRoute {
+        proposed: ProposedAutoRoute,
+    },
+    DragEdge {
+        target: RouteEdgeDragged,
+        delta: Vec2,
+    },
+    FinalizeEdgeDrag {
+        route: RouteId,
+        start_waypoint: WaypointId,
+        end_waypoint: WaypointId,
+    },
+    FinalizeRouteLabelEdit {
+        route: RouteId,
+    },
+    DragWaypoint {
+        inner: WaypointDragged,
+        delta: Vec2,
+    },
+    FinalizeWaypointDrag {
+        route: RouteId,
+    },
+    FinalizeTextAnchorDrag {
+        route: RouteId,
+    },
 }
 
 impl Drawing {
@@ -440,141 +565,125 @@ impl Drawing {
             );
         }
     }
-    fn handle_route_hover_check(&self, id: RouteId, response: Response) -> State {
-        if let Some(hover_pos) = response.hover_pos()
+    fn handle_route_hover_check(&self, id: RouteId, event: Event) -> Action {
+        if let Event::HoverAt(hover_pos) = event
             && let Some(route) = self.auto_routes.get(id)
         {
             for (waypoint_id, waypoint) in route.iter_waypoints() {
                 if waypoint.pos.distance(hover_pos) <= PORT_RADIUS * 1.5 {
-                    return WaypointHovered {
-                        route: id,
-                        waypoint: waypoint_id,
-                    }
-                    .into();
+                    return Action::TransitionTo(
+                        WaypointHovered {
+                            route: id,
+                            waypoint: waypoint_id,
+                        }
+                        .into(),
+                    );
                 }
             }
             if let Some((edge_1, edge_2)) = route.hovered_corner(hover_pos) {
-                return RouteCornerHovered { id, edge_1, edge_2 }.into();
+                return Action::TransitionTo(RouteCornerHovered { id, edge_1, edge_2 }.into());
             }
             if let Some(edge_id) = route.hovered_edge(hover_pos)
                 && let Some(edge) = route.edge(edge_id)
                 && hover_pos.distance(edge.center()) <= PORT_RADIUS * 1.5
             {
-                return RouteEdgeHovered {
-                    id,
-                    edge_index: edge_id,
-                    direction: edge.direction(),
-                }
-                .into();
+                return Action::TransitionTo(
+                    RouteEdgeHovered {
+                        id,
+                        edge_index: edge_id,
+                        direction: edge.direction(),
+                    }
+                    .into(),
+                );
             }
             if let Some(label_id) = route.hit_text_anchor(hover_pos) {
-                return TextAnchorHovered {
-                    route: id,
-                    label_id,
-                }
-                .into();
+                return Action::TransitionTo(
+                    TextAnchorHovered {
+                        route: id,
+                        label_id,
+                    }
+                    .into(),
+                );
             }
             if let Some(button) = route.hit_add_text_button(hover_pos) {
-                return AddTextButtonHovered {
-                    route: id,
-                    button: button.clone(),
-                }
-                .into();
+                return Action::TransitionTo(
+                    AddTextButtonHovered {
+                        route: id,
+                        button: button.clone(),
+                    }
+                    .into(),
+                );
             }
         }
-        RouteSelected { id }.into()
+        Action::TransitionTo(RouteSelected { id }.into())
     }
-    fn handle_add_text(&self, response: Response) -> State {
-        if let Some(pos) = response.hover_pos() {
+    fn handle_add_text(&self, event: Event) -> Action {
+        if let Event::HoverAt(pos) = event {
             for (id, route) in self.auto_routes.iter() {
                 if let Some(edge_id) = route.hovered_edge(pos) {
-                    return AddTextHoveredRoute {
-                        route: id,
-                        edge_id,
-                        pos,
-                    }
-                    .into();
+                    return Action::TransitionTo(
+                        AddTextHoveredRoute {
+                            route: id,
+                            edge_id,
+                            pos,
+                        }
+                        .into(),
+                    );
                 }
             }
         }
-        State::AddText
+        Action::TransitionTo(State::AddText)
     }
     fn handle_add_text_hovered_route(
-        &mut self,
+        &self,
         inner: AddTextHoveredRoute,
-        response: Response,
-    ) -> State {
-        if response.clicked_by(PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-            && let Some(route) = self.auto_routes.get_mut(inner.route)
-        {
-            let label = route.allocate_label(pos);
-            return EditingRouteLabelText {
-                id: inner.route,
-                label_id: label,
-            }
-            .into();
-        }
-        if let Some(route) = self.auto_routes.get(inner.route)
-            && let Some(pos) = response.hover_pos()
-            && let Some(edge) = route.hovered_edge(pos)
-        {
-            return AddTextHoveredRoute {
+        event: Event,
+    ) -> Action {
+        match event {
+            Event::Clicked { pos } => Action::AllocateLabelAndEdit {
                 route: inner.route,
-                edge_id: edge,
-                pos: pos,
+                pos,
+            },
+            Event::HoverAt(pos) => {
+                if let Some(route) = self.auto_routes.get(inner.route)
+                    && let Some(edge_id) = route.hovered_edge(pos)
+                {
+                    Action::TransitionTo(
+                        AddTextHoveredRoute {
+                            route: inner.route,
+                            edge_id,
+                            pos,
+                        }
+                        .into(),
+                    )
+                } else {
+                    Action::TransitionTo(State::AddText)
+                }
             }
-            .into();
+            _ => Action::TransitionTo(State::AddText),
         }
-        State::AddText
     }
-    fn handle_idle_state(&self, response: Response) -> State {
-        if response.drag_started_by(egui::PointerButton::Primary)
-            && let Some(pos_start) = response.interact_pointer_pos()
-        {
-            if let Some((id, _)) = self
-                .rect_boxes
-                .iter()
-                .find(|(_, r)| r.gui_rect().contains(pos_start))
-            {
-                return MovingRect {
-                    rect: id,
-                    delta_pos: vec2(0.0, 0.0),
+    fn handle_idle_state(&self, event: Event) -> Action {
+        match event {
+            Event::DragStarted { pos } => self.drag_start_on_canvas(pos),
+            Event::Clicked { pos } => {
+                if let Some(id) = self.rect_at(pos) {
+                    return Action::TransitionTo(Selected { rect: id }.into());
                 }
-                .into();
+                if let Some(id) = self.route_hit(pos) {
+                    return Action::TransitionTo(RouteSelected { id }.into());
+                }
+                Action::TransitionTo(State::Idle)
             }
-            return AddingRect {
-                start_pos: pos_start,
-                end_pos: snap_to_grid(pos_start),
-            }
-            .into();
-        } else if response.is_pointer_button_down_on()
-            && response
-                .ctx
-                .input(|i| i.pointer.button_down(PointerButton::Secondary))
-        {
-            return State::Panning;
-        }
-        if response.clicked_by(PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-        {
-            for (id, rect_box) in self.rect_boxes.iter() {
-                if rect_box.gui_rect().contains(pos) {
-                    return Selected { rect: id }.into();
+            Event::HoverAt(hover_pos) => {
+                if let Some(id) = self.route_hit(hover_pos) {
+                    Action::TransitionTo(RouteHovered { id }.into())
+                } else {
+                    Action::TransitionTo(State::Idle)
                 }
             }
-            for (id, route) in self.auto_routes.iter() {
-                if route.hovered_edge(pos).is_some() {
-                    return RouteSelected { id }.into();
-                }
-            }
+            _ => Action::TransitionTo(State::Idle),
         }
-        if let Some(hover_pos) = response.hover_pos() {
-            if let Some(id) = self.route_hit(hover_pos) {
-                return RouteHovered { id }.into();
-            }
-        }
-        State::Idle
     }
     fn route_hit(&self, pos: Pos2) -> Option<RouteId> {
         for (id, route) in self.auto_routes.iter() {
@@ -584,820 +693,964 @@ impl Drawing {
         }
         None
     }
-    fn handle_selected_state(&mut self, inner: Selected, response: Response) -> State {
-        let rect = inner.rect;
-        if response.double_clicked_by(PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-            && let Some(rect_box) = self.rect(rect)
-            && let Shape::Block(block) = rect_box
-            && block.title_bbox().contains(pos)
-        {
-            return EditingName { rect }.into();
-        }
-        if response.clicked_by(PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-        {
-            if let Some(ps) = self.rect_mut(rect)
-                && let Some(pin_pos) = ps.add_pin_button_east()
-                && pos.distance(pin_pos) <= PORT_RADIUS
-                && let Some(next_offset) = ps.next_pin_offset(PinSide::East)
-            {
-                ps.add_pin("port".into(), PinSide::East, next_offset);
-                self.reroute = true;
-                return Selected { rect }.into();
-            }
-            if let Some(ps) = self.rect_mut(rect)
-                && let Some(pin_pos) = ps.add_pin_button_west()
-                && pos.distance(pin_pos) <= PORT_RADIUS
-                && let Some(next_offset) = ps.next_pin_offset(PinSide::West)
-            {
-                ps.add_pin("port".into(), PinSide::West, next_offset);
-                self.reroute = true;
-                return Selected { rect }.into();
-            }
-            if let Some((id, _)) = self
-                .rect_boxes
-                .iter()
-                .find(|(_, r)| r.gui_rect().contains(pos))
-            {
-                return Selected { rect: id }.into();
-            } else {
-                return State::idle();
-            }
-        }
-        if response.drag_started_by(PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-            && let Some(hbox) = self.rect(rect)
-            && let Some(lid) = hbox.find_pin(|lid, _pin| {
-                if hbox.pin_head_pos(lid)?.distance(pos) <= PORT_RADIUS {
-                    Some(lid)
-                } else {
-                    None
-                }
-            })
-        {
-            return PinDragged {
-                rect,
-                pin: lid,
-                delta_pos: vec2(0.0, 0.0),
-            }
-            .into();
-        }
-        if response.drag_started_by(PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-        {
-            if let Some((id, _)) = self
-                .rect_boxes
-                .iter()
-                .find(|(_, r)| r.gui_rect().contains(pos))
-            {
-                return MovingRect {
-                    rect: id,
-                    delta_pos: vec2(0.0, 0.0),
-                }
-                .into();
-            }
-            return AddingRect {
-                start_pos: pos,
-                end_pos: snap_to_grid(pos),
-            }
-            .into();
-        }
-        if let Some(hover_pos) = response.hover_pos()
-            && let Some(bbox) = self.rect(rect)
-        {
-            for &mode in bbox.resize_modes() {
-                if hover_pos.distance(control_corner(&bbox.gui_rect(), mode)) < MOVE_HOVER_DISTANCE
-                {
-                    return PotentialResize { rect, mode }.into();
-                }
-            }
-            if let Some(title_position_anchor) = bbox.title_anchor() {
-                if hover_pos.distance(title_position_anchor) < MOVE_HOVER_DISTANCE {
-                    return TitleControlHovered { rect }.into();
-                }
-            }
-            if let Shape::Block(block) = &bbox
-                && block.title_bbox().contains(hover_pos)
-            {
-                return TitleHovered { rect }.into();
-            }
-            if let Some(state) = bbox.find_pin(|pid, pin| {
-                let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin);
-                if pin_bbox.contains(hover_pos) {
-                    eprintln!("Hovering over label {}", pin.text);
-                    return Some(PinLabelHovered { rect, pin: pid }.into());
-                }
-                let hamburger_rect = get_hamburger_rect(bbox.gui_rect(), pin).expand(GRIP_SHIM);
-                if hamburger_rect.contains(hover_pos) {
-                    eprintln!("Hovering over grip for label {}", pin.text);
-                    return Some(PinLabelGripHovered { rect, pin: pid }.into());
-                }
-                let pin_location = get_control_pin_bbox(bbox.gui_rect(), pin);
-                if pin_location.contains(hover_pos) {
-                    eprintln!("Hovering over pin for label {}", pin.text);
-                    return Some(PinHeadHovered { rect, pin: pid }.into());
-                }
-                None
-            }) {
-                return state;
-            }
-        }
-        Selected { rect }.into()
+    fn rect_at(&self, pos: Pos2) -> Option<RectId> {
+        self.rect_boxes
+            .iter()
+            .find(|(_, r)| r.gui_rect().contains(pos))
+            .map(|(id, _)| id)
     }
-    fn handle_potential_resize(&self, inner: PotentialResize, response: Response) -> State {
-        let PotentialResize { rect, mode } = inner;
-        if let Some(hover_pos) = response.hover_pos()
-            && let Some(bbox) = self.rect(rect)
-            && hover_pos.distance(control_corner(&bbox.gui_rect(), mode)) >= MOVE_HOVER_DISTANCE
-        {
-            return Selected { rect }.into();
+    fn drag_start_on_canvas(&self, pos: Pos2) -> Action {
+        if let Some(id) = self.rect_at(pos) {
+            Action::TransitionTo(MovingRect { rect: id, delta_pos: Vec2::ZERO }.into())
+        } else {
+            Action::TransitionTo(AddingRect { start_pos: pos, end_pos: snap_to_grid(pos) }.into())
         }
-        if response.drag_started_by(egui::PointerButton::Primary) {
-            return ResizingRect {
-                rect,
-                mode,
-                delta_pos: vec2(0.0, 0.0),
+    }
+    fn handle_selected_state(&self, inner: Selected, event: Event) -> Action {
+        let rect = inner.rect;
+        match event {
+            Event::DoubleClicked { pos } => {
+                if let Some(rect_box) = self.rect(rect)
+                    && let Shape::Block(block) = rect_box
+                    && block.title_bbox().contains(pos)
+                {
+                    return Action::TransitionTo(EditingName { rect }.into());
+                }
             }
-            .into();
+            Event::Clicked { pos } => {
+                for &side in &[PinSide::East, PinSide::West] {
+                    if let Some(bbox) = self.rect(rect) {
+                        let btn = if side == PinSide::East {
+                            bbox.add_pin_button_east()
+                        } else {
+                            bbox.add_pin_button_west()
+                        };
+                        if let Some(pin_pos) = btn
+                            && pos.distance(pin_pos) <= PORT_RADIUS
+                            && bbox.next_pin_offset(side).is_some()
+                        {
+                            return Action::AddPin { rect, side };
+                        }
+                    }
+                }
+                if let Some(id) = self.rect_at(pos) {
+                    return Action::TransitionTo(Selected { rect: id }.into());
+                }
+                return Action::TransitionTo(State::idle());
+            }
+            Event::DragStarted { pos } => {
+                if let Some(hbox) = self.rect(rect)
+                    && let Some(lid) = hbox.find_pin(|lid, _pin| {
+                        if hbox.pin_head_pos(lid)?.distance(pos) <= PORT_RADIUS {
+                            Some(lid)
+                        } else {
+                            None
+                        }
+                    })
+                {
+                    return Action::TransitionTo(
+                        PinDragged { rect, pin: lid, delta_pos: Vec2::ZERO }.into(),
+                    );
+                }
+                return self.drag_start_on_canvas(pos);
+            }
+            Event::HoverAt(hover_pos) => {
+                if let Some(bbox) = self.rect(rect) {
+                    for &mode in bbox.resize_modes() {
+                        if hover_pos.distance(control_corner(&bbox.gui_rect(), mode))
+                            < MOVE_HOVER_DISTANCE
+                        {
+                            return Action::TransitionTo(PotentialResize { rect, mode }.into());
+                        }
+                    }
+                    if let Some(anchor) = bbox.title_anchor()
+                        && hover_pos.distance(anchor) < MOVE_HOVER_DISTANCE
+                    {
+                        return Action::TransitionTo(TitleControlHovered { rect }.into());
+                    }
+                    if let Shape::Block(block) = &bbox
+                        && block.title_bbox().contains(hover_pos)
+                    {
+                        return Action::TransitionTo(TitleHovered { rect }.into());
+                    }
+                    if let Some(state) = bbox.find_pin(|pid, pin| {
+                        let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin);
+                        if pin_bbox.contains(hover_pos) {
+                            eprintln!("Hovering over label {}", pin.text);
+                            return Some(PinLabelHovered { rect, pin: pid }.into());
+                        }
+                        let hamburger_rect =
+                            get_hamburger_rect(bbox.gui_rect(), pin).expand(GRIP_SHIM);
+                        if hamburger_rect.contains(hover_pos) {
+                            eprintln!("Hovering over grip for label {}", pin.text);
+                            return Some(PinLabelGripHovered { rect, pin: pid }.into());
+                        }
+                        let pin_location = get_control_pin_bbox(bbox.gui_rect(), pin);
+                        if pin_location.contains(hover_pos) {
+                            eprintln!("Hovering over pin for label {}", pin.text);
+                            return Some(PinHeadHovered { rect, pin: pid }.into());
+                        }
+                        None
+                    }) {
+                        return Action::TransitionTo(state);
+                    }
+                }
+            }
+            _ => {}
         }
-        PotentialResize { rect, mode }.into()
+        Action::TransitionTo(Selected { rect }.into())
+    }
+    fn handle_potential_resize(&self, inner: PotentialResize, event: Event) -> Action {
+        let PotentialResize { rect, mode } = inner;
+        match event {
+            Event::HoverAt(hover_pos) => {
+                if let Some(bbox) = self.rect(rect)
+                    && hover_pos.distance(control_corner(&bbox.gui_rect(), mode))
+                        >= MOVE_HOVER_DISTANCE
+                {
+                    return Action::TransitionTo(Selected { rect }.into());
+                }
+            }
+            Event::DragStarted { .. } => {
+                return Action::TransitionTo(
+                    ResizingRect { rect, mode, delta_pos: Vec2::ZERO }.into(),
+                );
+            }
+            _ => {}
+        }
+        Action::TransitionTo(PotentialResize { rect, mode }.into())
     }
     fn handle_title_control_hovered(
         &self,
         inner: TitleControlHovered,
-        response: Response,
-    ) -> State {
+        event: Event,
+    ) -> Action {
         let TitleControlHovered { rect } = inner;
-        if let Some(hover_pos) = response.hover_pos()
-            && let Some(bbox) = self.rect(rect)
-            && let Some(title_anchor) = bbox.title_anchor()
-            && hover_pos.distance(title_anchor) >= MOVE_HOVER_DISTANCE
-        {
-            return Selected { rect }.into();
-        }
-        if response.drag_started_by(egui::PointerButton::Primary) {
-            return TitleControlDragged {
-                rect,
-                delta_pos: vec2(0.0, 0.0),
+        match event {
+            Event::HoverAt(hover_pos) => {
+                if let Some(bbox) = self.rect(rect)
+                    && let Some(title_anchor) = bbox.title_anchor()
+                    && hover_pos.distance(title_anchor) >= MOVE_HOVER_DISTANCE
+                {
+                    return Action::TransitionTo(Selected { rect }.into());
+                }
             }
-            .into();
+            Event::DragStarted { .. } => {
+                return Action::TransitionTo(
+                    TitleControlDragged { rect, delta_pos: Vec2::ZERO }.into(),
+                );
+            }
+            _ => {}
         }
-        TitleControlHovered { rect }.into()
+        Action::TransitionTo(TitleControlHovered { rect }.into())
     }
 
-    fn handle_pin_label_hovered(&self, inner: PinLabelHovered, response: Response) -> State {
+    fn handle_pin_label_hovered(&self, inner: PinLabelHovered, event: Event) -> Action {
         let PinLabelHovered { rect, pin } = inner;
-        if let Some(hover_pos) = response.hover_pos()
-            && let Some(bbox) = self.rect(rect)
-            && let Some(pin) = bbox.pin(pin)
-        {
-            let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin);
-            if !pin_bbox.contains(hover_pos) {
-                return Selected { rect }.into();
+        match event {
+            Event::HoverAt(hover_pos) => {
+                if let Some(bbox) = self.rect(rect)
+                    && let Some(pin_ref) = bbox.pin(pin)
+                {
+                    let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin_ref);
+                    if !pin_bbox.contains(hover_pos) {
+                        return Action::TransitionTo(Selected { rect }.into());
+                    }
+                }
             }
+            Event::DoubleClicked { .. } => {
+                return Action::TransitionTo(EditingPinText { rect, pin }.into());
+            }
+            _ => {}
         }
-        if response.double_clicked_by(egui::PointerButton::Primary) {
-            return EditingPinText { rect, pin }.into();
-        }
-        PinLabelHovered { rect, pin }.into()
+        Action::TransitionTo(PinLabelHovered { rect, pin }.into())
     }
-    fn handle_route_label_hovered(&self, route: RouteLabelHovered, response: Response) -> State {
-        if let Some(hover_pos) = response.hover_pos()
+    fn handle_route_label_hovered(&self, route: RouteLabelHovered, event: Event) -> Action {
+        if let Event::HoverAt(hover_pos) = event
             && let Some(auto_route) = self.auto_routes.get(route.id)
         {
             let Some(edge_index) = auto_route.hovered_edge(hover_pos) else {
-                return State::Idle;
+                return Action::TransitionTo(State::Idle);
             };
             if edge_index != route.edge_index {
-                return State::Idle;
+                return Action::TransitionTo(State::Idle);
             }
         }
-        route.into()
+        Action::TransitionTo(route.into())
     }
     fn handle_pin_label_grip_hovered(
         &self,
         inner: PinLabelGripHovered,
-        response: Response,
-    ) -> State {
+        event: Event,
+    ) -> Action {
         let PinLabelGripHovered { rect, pin } = inner;
-        if response.drag_started_by(egui::PointerButton::Primary) || response.dragged() {
-            eprintln!("Starting to drag port label grip");
-            return PinDragged {
-                rect,
-                pin,
-                delta_pos: vec2(0.0, 0.0),
+        match event {
+            Event::DragStarted { .. } | Event::Dragging { .. } => {
+                eprintln!("Starting to drag port label grip");
+                return Action::TransitionTo(PinDragged { rect, pin, delta_pos: Vec2::ZERO }.into());
             }
-            .into();
-        }
-        if let Some(hover_pos) = response.hover_pos()
-            && let Some(bbox) = self.rect(rect)
-            && let Some(pin) = bbox.pin(pin)
-        {
-            let hamburger_rect = get_hamburger_rect(bbox.gui_rect(), pin).expand(GRIP_SHIM);
-            if !hamburger_rect.contains(hover_pos) {
-                return Selected { rect }.into();
+            Event::HoverAt(hover_pos) => {
+                if let Some(bbox) = self.rect(rect)
+                    && let Some(pin_ref) = bbox.pin(pin)
+                {
+                    let hamburger_rect =
+                        get_hamburger_rect(bbox.gui_rect(), pin_ref).expand(GRIP_SHIM);
+                    if !hamburger_rect.contains(hover_pos) {
+                        return Action::TransitionTo(Selected { rect }.into());
+                    }
+                }
             }
+            _ => {}
         }
-        PinLabelGripHovered { rect, pin }.into()
+        Action::TransitionTo(PinLabelGripHovered { rect, pin }.into())
     }
-    fn handle_pin_head_hovered(&self, inner: PinHeadHovered, response: Response) -> State {
+    fn handle_pin_head_hovered(&self, inner: PinHeadHovered, event: Event) -> Action {
         let PinHeadHovered { rect, pin } = inner;
-        if let Some(hover_pos) = response.hover_pos()
-            && let Some(bbox) = self.rect(rect)
-            && let Some(pin) = bbox.pin(pin)
-        {
-            let pin_location = get_control_pin_bbox(bbox.gui_rect(), pin);
-            if !pin_location.contains(hover_pos) {
-                return Selected { rect }.into();
+        match event {
+            Event::HoverAt(hover_pos) => {
+                if let Some(bbox) = self.rect(rect)
+                    && let Some(pin_ref) = bbox.pin(pin)
+                {
+                    let pin_location = get_control_pin_bbox(bbox.gui_rect(), pin_ref);
+                    if !pin_location.contains(hover_pos) {
+                        return Action::TransitionTo(Selected { rect }.into());
+                    }
+                }
             }
-        }
-        if response.clicked_by(egui::PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-        {
-            return InProgressAutoRoute {
-                start: LineAnchor { rect, pin },
-                waypoints: Store::default(),
-                head: pos,
+            Event::Clicked { pos } => {
+                return Action::TransitionTo(
+                    InProgressAutoRoute {
+                        start: LineAnchor { rect, pin },
+                        waypoints: Store::default(),
+                        head: pos,
+                    }
+                    .into(),
+                );
             }
-            .into();
+            _ => {}
         }
-        PinHeadHovered { rect, pin }.into()
+        Action::TransitionTo(PinHeadHovered { rect, pin }.into())
     }
     fn handle_route_corner_hovered(
-        &mut self,
+        &self,
         inner: RouteCornerHovered,
-        response: Response,
-    ) -> State {
-        if (response.drag_started_by(egui::PointerButton::Primary) || response.dragged())
-            && let Some(pos) = response.interact_pointer_pos()
-            && let Some(route) = self.auto_routes.get_mut(inner.id)
-        {
-            eprintln!("Starting to drag route corner");
-            if let Some(waypoint_id) = route.hit_waypoint(pos, PORT_RADIUS) {
-                route.lock_waypoint(waypoint_id);
-                return WaypointDragged {
-                    route: inner.id,
-                    waypoint: waypoint_id,
-                    delta_pos: vec2(0.0, 0.0),
+        event: Event,
+    ) -> Action {
+        match event {
+            Event::DragStarted { pos } | Event::Dragging { pos, .. } => {
+                eprintln!("Starting to drag route corner");
+                if let Some(route) = self.auto_routes.get(inner.id) {
+                    if let Some(waypoint_id) = route.hit_waypoint(pos, PORT_RADIUS) {
+                        return Action::StartRouteCornerDrag {
+                            waypoint_id,
+                            route: inner.id,
+                        };
+                    }
+                    if route.edge(inner.edge_1).is_some() {
+                        return Action::AddCornerWaypointAndDrag {
+                            route: inner.id,
+                            pos,
+                        };
+                    }
                 }
-                .into();
             }
-            if let Some(_) = route.edge(inner.edge_1) {
-                let waypoint_id = route.add_waypoint(snap_to_grid(pos));
-                route.lock_waypoint(waypoint_id);
-                return WaypointDragged {
-                    route: inner.id,
-                    waypoint: waypoint_id,
-                    delta_pos: vec2(0.0, 0.0),
+            _ => {}
+        }
+        self.handle_route_hover_check(inner.id, event)
+    }
+    fn handle_route_hovered(&self, _inner: RouteHovered, event: Event) -> Action {
+        match event {
+            Event::Clicked { pos } => {
+                if let Some(id) = self.route_hit(pos) {
+                    return Action::TransitionTo(RouteSelected { id }.into());
                 }
-                .into();
             }
-        }
-        self.handle_route_hover_check(inner.id, response)
-    }
-    fn handle_route_hovered(&mut self, _inner: RouteHovered, response: Response) -> State {
-        if response.clicked_by(egui::PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-        {
-            if let Some(id) = self.route_hit(pos) {
-                return RouteSelected { id }.into();
-            }
-        }
-        if let Some(hover_pos) = response.hover_pos()
-            && let Some(id) = self.route_hit(hover_pos)
-        {
-            return RouteHovered { id }.into();
-        }
-        return State::Idle;
-    }
-    fn handle_route_selected(&self, inner: RouteSelected, response: Response) -> State {
-        if response.clicked_by(egui::PointerButton::Primary) {
-            return State::Idle;
-        }
-        self.handle_route_hover_check(inner.id, response)
-    }
-    fn handle_route_edge_hovered(&mut self, target: RouteEdgeHovered, response: Response) -> State {
-        if (response.drag_started_by(egui::PointerButton::Primary) || response.dragged())
-            && let Some(route) = self.auto_routes.get_mut(target.id)
-            && let Some(edge) = route.edge(target.edge_index).cloned()
-        {
-            eprintln!("Starting to drag route edge");
-            eprintln!("Raw edge: {:?}", edge);
-            let wp1 = route.add_waypoint(edge.waypoint_position_start());
-            let wp2 = route.add_waypoint(edge.waypoint_position_end());
-            route.lock_waypoint(wp1);
-            route.lock_waypoint(wp2);
-            self.reroute = true;
-            self.ripup_set.push(target.id);
-            if wp1 == wp2 {
-                return WaypointDragged {
-                    route: target.id,
-                    waypoint: wp1,
-                    delta_pos: vec2(0.0, 0.0),
+            Event::HoverAt(hover_pos) => {
+                if let Some(id) = self.route_hit(hover_pos) {
+                    return Action::TransitionTo(RouteHovered { id }.into());
                 }
-                .into();
             }
-            return RouteEdgeDragged {
-                id: target.id,
-                direction: edge.direction(),
-                start_waypoint: wp1,
-                end_waypoint: wp2,
-                delta_pos: vec2(0.0, 0.0),
-            }
-            .into();
+            _ => {}
         }
-        self.handle_route_hover_check(target.id, response)
+        Action::TransitionTo(State::Idle)
+    }
+    fn handle_route_selected(&self, inner: RouteSelected, event: Event) -> Action {
+        if matches!(event, Event::Clicked { .. }) {
+            return Action::TransitionTo(State::Idle);
+        }
+        self.handle_route_hover_check(inner.id, event)
+    }
+    fn handle_route_edge_hovered(&self, target: RouteEdgeHovered, event: Event) -> Action {
+        match event {
+            Event::DragStarted { .. } | Event::Dragging { .. } => {
+                if self
+                    .auto_routes
+                    .get(target.id)
+                    .and_then(|r| r.edge(target.edge_index))
+                    .is_some()
+                {
+                    return Action::StartEdgeDrag {
+                        route: target.id,
+                        edge_id: target.edge_index,
+                    };
+                }
+            }
+            _ => {}
+        }
+        self.handle_route_hover_check(target.id, event)
     }
     fn handle_add_text_button_hovered(
-        &mut self,
+        &self,
         inner: AddTextButtonHovered,
-        response: Response,
-    ) -> State {
-        if response.clicked_by(PointerButton::Primary)
-            && let Some(route) = self.auto_routes.get_mut(inner.route)
-        {
-            let lin_pos = inner.button.linear_position;
-            let loc_and_dir = route.map_linear_distance_to_position(lin_pos);
-            let label_id = route.allocate_label(loc_and_dir.location);
-            return EditingRouteLabelText {
-                id: inner.route,
-                label_id,
-            }
-            .into();
-        }
-        self.handle_route_hover_check(inner.route, response)
-    }
-    fn handle_text_anchor_hovered(
-        &mut self,
-        inner: TextAnchorHovered,
-        response: Response,
-    ) -> State {
-        if response.drag_started_by(egui::PointerButton::Primary) || response.dragged() {
-            eprintln!("Starting to drag text anchor");
-            return TextAnchorDragged {
+        event: Event,
+    ) -> Action {
+        if matches!(event, Event::Clicked { .. }) {
+            return Action::AddRouteText {
                 route: inner.route,
-                label_id: inner.label_id,
-                delta_pos: vec2(0.0, 0.0),
-            }
-            .into();
+                button: inner.button,
+            };
         }
-        if response.double_clicked_by(egui::PointerButton::Primary) {
-            return EditingRouteLabelText {
-                id: inner.route,
-                label_id: inner.label_id,
-            }
-            .into();
-        }
-        self.handle_route_hover_check(inner.route, response)
+        self.handle_route_hover_check(inner.route, event)
     }
-    fn handle_title_hovered(&mut self, inner: TitleHovered, response: Response) -> State {
-        if response.double_clicked_by(egui::PointerButton::Primary) {
-            return EditingName { rect: inner.rect }.into();
+    fn handle_text_anchor_hovered(&self, inner: TextAnchorHovered, event: Event) -> Action {
+        match event {
+            Event::DragStarted { .. } | Event::Dragging { .. } => {
+                eprintln!("Starting to drag text anchor");
+                return Action::TransitionTo(
+                    TextAnchorDragged { route: inner.route, label_id: inner.label_id, delta_pos: Vec2::ZERO }.into(),
+                );
+            }
+            Event::DoubleClicked { .. } => {
+                return Action::TransitionTo(
+                    EditingRouteLabelText {
+                        id: inner.route,
+                        label_id: inner.label_id,
+                    }
+                    .into(),
+                );
+            }
+            _ => {}
         }
-        if let Some(block) = self.rect(inner.rect)
-            && let Some(pos) = response.hover_pos()
-            && let Shape::Block(block) = &block
-            && block.title_bbox().contains(pos)
-        {
-            return inner.into();
+        self.handle_route_hover_check(inner.route, event)
+    }
+    fn handle_title_hovered(&self, inner: TitleHovered, event: Event) -> Action {
+        match event {
+            Event::DoubleClicked { .. } => {
+                return Action::TransitionTo(EditingName { rect: inner.rect }.into());
+            }
+            Event::HoverAt(pos) => {
+                if let Some(block) = self.rect(inner.rect)
+                    && let Shape::Block(block) = &block
+                    && block.title_bbox().contains(pos)
+                {
+                    return Action::TransitionTo(inner.into());
+                }
+            }
+            _ => {}
         }
-        Selected { rect: inner.rect }.into()
+        Action::TransitionTo(Selected { rect: inner.rect }.into())
     }
     fn handle_title_control_dragged(
-        &mut self,
+        &self,
         inner: TitleControlDragged,
-        response: Response,
-    ) -> State {
+        event: Event,
+    ) -> Action {
         let TitleControlDragged { rect, delta_pos } = inner;
-        if let Some(pos) = response.interact_pointer_pos()
-            && let Some(rbox) = self.rect_mut(rect)
-        {
-            let center_line = rbox.gui_rect().center().y;
-            if let Some(title_ref) = rbox.title_mut() {
-                if pos.y < center_line {
-                    title_ref.side = TitleSide::Top;
+        match event {
+            Event::Dragging { delta, .. } => Action::TransitionTo(
+                TitleControlDragged {
+                    rect,
+                    delta_pos: delta_pos + delta,
+                }
+                .into(),
+            ),
+            _ => {
+                let side = if let Some(Shape::Block(block)) = self.rect(rect) {
+                    block.title().map(|t| t.side).unwrap_or(TitleSide::Top)
                 } else {
-                    title_ref.side = TitleSide::Bottom;
+                    TitleSide::Top
+                };
+                Action::MoveTitle {
+                    rect,
+                    offset: delta_pos.x,
+                    side,
                 }
             }
         }
-        if response.dragged_by(egui::PointerButton::Primary) {
-            let delta = response.drag_delta();
-            return TitleControlDragged {
-                rect,
-                delta_pos: delta_pos + delta,
-            }
-            .into();
-        } else if (response.drag_stopped_by(egui::PointerButton::Primary) || !response.dragged())
-            && let Some(bbox) = self.rect_mut(inner.rect)
-            && let Some(title) = bbox.title_mut()
-        {
-            title.offset += delta_pos.x;
-            return Selected { rect: inner.rect }.into();
-        }
-        inner.into()
     }
 
-    fn handle_text_anchor_dragged(
-        &mut self,
-        inner: TextAnchorDragged,
-        response: Response,
-    ) -> State {
-        if response.dragged_by(egui::PointerButton::Primary)
-            && let Some(route) = self.auto_routes.get_mut(inner.route)
-            && let Some(label) = route.label(inner.label_id)
-        {
-            let delta = response.drag_delta();
-            let label_distance = label.linear_distance;
-            let (direction, flip_sign) = if let Some((_, edge)) = route.find_edge(label_distance) {
-                let dir = edge.direction();
-                let flip_sign = match dir {
-                    RouteDirection::Horizontal => edge.start.x > edge.end.x,
-                    RouteDirection::Vertical => edge.start.y > edge.end.y,
-                };
-                (dir, flip_sign)
-            } else {
-                (RouteDirection::Horizontal, false)
-            };
-            if let Some(label) = route.label_mut(inner.label_id) {
-                match direction {
-                    RouteDirection::Horizontal => {
-                        label.linear_distance += if flip_sign { -delta.x } else { delta.x };
-                    }
-                    RouteDirection::Vertical => {
-                        label.linear_distance += if flip_sign { -delta.y } else { delta.y };
-                    }
+    fn handle_text_anchor_dragged(&self, inner: TextAnchorDragged, event: Event) -> Action {
+        match event {
+            Event::Dragging { delta, .. } => {
+                let linear_distance_delta = self
+                    .auto_routes
+                    .get(inner.route)
+                    .and_then(|route| {
+                        let label_distance = route.label(inner.label_id)?.linear_distance;
+                        let (direction, flip_sign) =
+                            if let Some((_, edge)) = route.find_edge(label_distance) {
+                                let dir = edge.direction();
+                                let flip = match dir {
+                                    RouteDirection::Horizontal => edge.start.x > edge.end.x,
+                                    RouteDirection::Vertical => edge.start.y > edge.end.y,
+                                };
+                                (dir, flip)
+                            } else {
+                                (RouteDirection::Horizontal, false)
+                            };
+                        let d = match direction {
+                            RouteDirection::Horizontal => {
+                                if flip_sign {
+                                    -delta.x
+                                } else {
+                                    delta.x
+                                }
+                            }
+                            RouteDirection::Vertical => {
+                                if flip_sign {
+                                    -delta.y
+                                } else {
+                                    delta.y
+                                }
+                            }
+                        };
+                        Some(d)
+                    })
+                    .unwrap_or(0.0);
+                Action::ShiftRouteLabel {
+                    route: inner.route,
+                    label_id: inner.label_id,
+                    linear_distance_delta,
                 }
             }
-            route.update_label_positions();
-            return inner.into();
-        } else if (response.drag_stopped_by(egui::PointerButton::Primary) || !response.dragged())
-            && let Some(route) = self.auto_routes.get_mut(inner.route)
-        {
-            route.update_waypoints();
-            return RouteSelected { id: inner.route }.into();
+            _ => Action::FinalizeTextAnchorDrag { route: inner.route },
         }
-        inner.into()
     }
-    fn handle_waypoint_hovered(&mut self, inner: WaypointHovered, response: Response) -> State {
-        if (response.drag_started_by(egui::PointerButton::Primary) || response.dragged())
-            && let Some(route) = self.auto_routes.get_mut(inner.route)
-        {
-            eprintln!("Starting to drag waypoint");
-            route.lock_waypoint(inner.waypoint);
-            return WaypointDragged {
-                route: inner.route,
-                waypoint: inner.waypoint,
-                delta_pos: vec2(0.0, 0.0),
+    fn handle_waypoint_hovered(&self, inner: WaypointHovered, event: Event) -> Action {
+        match event {
+            Event::DragStarted { .. } | Event::Dragging { .. } => {
+                eprintln!("Starting to drag waypoint");
+                return Action::StartRouteCornerDrag {
+                    waypoint_id: inner.waypoint,
+                    route: inner.route,
+                };
             }
-            .into();
+            _ => {}
         }
-        self.handle_route_hover_check(inner.route, response)
+        self.handle_route_hover_check(inner.route, event)
     }
-    fn handle_waypoint_dragged(&mut self, inner: WaypointDragged, response: Response) -> State {
-        if response.dragged_by(egui::PointerButton::Primary)
-            && let Some(route) = self.auto_routes.get_mut(inner.route)
-        {
-            let delta = response.drag_delta();
-            if let Some(wp) = route.waypoint_mut(inner.waypoint) {
-                wp.pos += delta;
-            }
-            self.reroute = true;
-            self.ripup_set.push(inner.route);
-            return inner.into();
-        } else if (response.drag_stopped_by(egui::PointerButton::Primary) || !response.dragged())
-            && let Some(route) = self.auto_routes.get_mut(inner.route)
-        {
-            route.iter_waypoints_mut().for_each(|(_, wp)| {
-                wp.pos = snap_to_grid(wp.pos);
-                wp.unlock();
-            });
-            self.reroute = true;
-            return RouteSelected { id: inner.route }.into();
+    fn handle_waypoint_dragged(&self, inner: WaypointDragged, event: Event) -> Action {
+        match event {
+            Event::Dragging { delta, .. } => Action::DragWaypoint { inner, delta },
+            _ => Action::FinalizeWaypointDrag { route: inner.route },
         }
-        inner.into()
     }
-    fn handle_resizing_rect(&mut self, inner: ResizingRect, response: Response) -> State {
+    fn handle_resizing_rect(&self, inner: ResizingRect, event: Event) -> Action {
         let ResizingRect {
             rect,
             mode,
             delta_pos,
         } = inner;
-        if response.dragged_by(egui::PointerButton::Primary) {
-            let raw_delta = response.drag_delta();
-            let constrained_delta = self
-                .rect(rect)
-                .map(|b| b.constrain_resize_delta(raw_delta))
-                .unwrap_or(raw_delta);
-            return ResizingRect {
-                rect,
-                mode,
-                delta_pos: delta_pos + constrained_delta,
+        match event {
+            Event::Dragging {
+                delta: raw_delta, ..
+            } => {
+                let constrained_delta = self
+                    .rect(rect)
+                    .map(|b| b.constrain_resize_delta(raw_delta))
+                    .unwrap_or(raw_delta);
+                Action::TransitionAndUpdate(
+                    ResizingRect {
+                        rect,
+                        mode,
+                        delta_pos: delta_pos + constrained_delta,
+                    }
+                    .into(),
+                )
             }
-            .into();
-        } else if (response.drag_stopped_by(egui::PointerButton::Primary) || !response.dragged())
-            && let Some(bbox) = self.rect_mut(rect)
-        {
-            let new_rect = grid_rect(resize_rect(&bbox.gui_rect(), mode, delta_pos));
-            bbox.apply_resize(mode, new_rect);
-            return Selected { rect }.into();
+            _ => Action::ResizeRect {
+                inner: ResizingRect {
+                    rect,
+                    mode,
+                    delta_pos,
+                },
+                next: Selected { rect }.into(),
+            },
         }
-        ResizingRect {
-            rect,
-            mode,
-            delta_pos,
-        }
-        .into()
     }
-    fn handle_moving_rect(&mut self, inner: MovingRect, response: Response) -> State {
+    fn handle_moving_rect(&self, inner: MovingRect, event: Event) -> Action {
         let MovingRect { rect, delta_pos } = inner;
-        if response.dragged_by(egui::PointerButton::Primary) {
-            let delta = response.drag_delta();
-            return MovingRect {
-                rect,
-                delta_pos: delta_pos + delta,
-            }
-            .into();
-        } else if (response.drag_stopped_by(egui::PointerButton::Primary) || !response.dragged())
-            && let Some(bbox) = self.rect_mut(rect)
-        {
-            *bbox.gui_rect_mut() = grid_rect(bbox.gui_rect().translate(delta_pos));
-            return Selected { rect }.into();
+        match event {
+            Event::Dragging { delta, .. } => Action::TransitionAndUpdate(
+                MovingRect {
+                    rect,
+                    delta_pos: delta_pos + delta,
+                }
+                .into(),
+            ),
+            _ => Action::MoveRect {
+                inner: MovingRect { rect, delta_pos },
+                next: Selected { rect }.into(),
+            },
         }
-        MovingRect { rect, delta_pos }.into()
     }
-    fn handle_adding_rect(&mut self, inner: AddingRect, response: Response) -> State {
+    fn handle_adding_rect(&self, inner: AddingRect, event: Event) -> Action {
         let AddingRect { start_pos, end_pos } = inner;
-        if response.dragged_by(egui::PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-        {
-            return AddingRect {
-                start_pos: snap_to_grid(start_pos),
-                end_pos: snap_to_grid(pos),
+        match event {
+            Event::Dragging { pos, .. } => Action::TransitionAndUpdate(
+                AddingRect {
+                    start_pos: snap_to_grid(start_pos),
+                    end_pos: snap_to_grid(pos),
+                }
+                .into(),
+            ),
+            Event::DragStopped => {
+                let candidate_rect = Rect::from_two_pos(start_pos, end_pos);
+                if candidate_rect.width() > GRID_SIZE && candidate_rect.height() > GRID_SIZE {
+                    Action::AddRect {
+                        inner: AddingRect { start_pos, end_pos },
+                    }
+                } else {
+                    Action::TransitionAndUpdate(State::idle())
+                }
             }
-            .into();
-        } else if response.drag_stopped_by(egui::PointerButton::Primary) {
-            let candidate_rect = Rect::from_two_pos(start_pos, end_pos);
-            if candidate_rect.width() > GRID_SIZE && candidate_rect.height() > GRID_SIZE {
-                let rect = self.add_rect_box(start_pos, end_pos);
-                return Selected { rect }.into();
-            } else {
-                return State::idle();
-            }
+            _ => Action::TransitionAndUpdate(AddingRect { start_pos, end_pos }.into()),
         }
-        if response
-            .ctx
-            .input(|i| i.pointer.button_down(PointerButton::Secondary))
-        {
-            return State::panning();
-        }
-        AddingRect { start_pos, end_pos }.into()
     }
-    fn handle_panning(&self, response: Response) -> State {
-        if response.drag_stopped() {
-            return State::idle();
+    fn handle_panning(&self, event: Event) -> Action {
+        if matches!(event, Event::DragStopped) {
+            return Action::TransitionTo(State::idle());
         }
-        State::panning()
+        Action::TransitionTo(State::panning())
     }
-    fn handle_editing_name(&self, inner: EditingName, response: Response) -> State {
+    fn handle_editing_name(&self, inner: EditingName, event: Event) -> Action {
         let rect = inner.rect;
-        if response.clicked() {
-            return Selected { rect }.into();
+        if matches!(event, Event::Clicked { .. }) {
+            return Action::TransitionTo(Selected { rect }.into());
         }
-        EditingName { rect }.into()
+        Action::TransitionTo(EditingName { rect }.into())
     }
-    fn handle_editing_pin_text(&self, inner: EditingPinText, response: Response) -> State {
+    fn handle_editing_pin_text(&self, inner: EditingPinText, event: Event) -> Action {
         let EditingPinText { rect, pin } = inner;
-        if response.clicked() {
-            return Selected { rect }.into();
+        if matches!(event, Event::Clicked { .. }) {
+            return Action::TransitionTo(Selected { rect }.into());
         }
-        EditingPinText { rect, pin }.into()
+        Action::TransitionTo(EditingPinText { rect, pin }.into())
     }
     fn handle_editing_route_label_text(
-        &mut self,
+        &self,
         inner: EditingRouteLabelText,
-        response: Response,
-    ) -> State {
-        if response.clicked() {
-            if let Some(route) = self.auto_routes.get_mut(inner.id) {
-                route.update_waypoints();
-            }
-            return State::Idle;
+        event: Event,
+    ) -> Action {
+        if matches!(event, Event::Clicked { .. }) {
+            return Action::FinalizeRouteLabelEdit { route: inner.id };
         }
-        inner.into()
+        Action::TransitionTo(inner.into())
     }
-    fn handle_route_edge_dragged(&mut self, target: RouteEdgeDragged, response: Response) -> State {
-        if response.dragged_by(egui::PointerButton::Primary) {
-            let mut delta = response.drag_delta();
-            if target.direction == RouteDirection::Horizontal {
-                delta.x = 0.0;
-            } else {
-                delta.y = 0.0;
+    fn handle_route_edge_dragged(&self, target: RouteEdgeDragged, event: Event) -> Action {
+        match event {
+            Event::Dragging { delta, .. } => {
+                let constrained_delta = if target.direction == RouteDirection::Horizontal {
+                    vec2(0.0, delta.y)
+                } else {
+                    vec2(delta.x, 0.0)
+                };
+                Action::DragEdge {
+                    target,
+                    delta: constrained_delta,
+                }
             }
-            if let Some(route) = self.auto_routes.get_mut(target.id) {
-                route.update_waypoint(target.start_waypoint, |wp| wp.pos += delta);
-                route.update_waypoint(target.end_waypoint, |wp| wp.pos += delta);
-                self.reroute = true;
-                self.ripup_set.push(target.id);
-                return target.into();
-            }
-            return self.handle_route_hover_check(target.id, response);
-        } else if response.drag_stopped_by(egui::PointerButton::Primary) || !response.dragged() {
-            let route = self.auto_routes.get_mut(target.id).unwrap();
-            if let Some(start_wp) = route.waypoint_mut(target.start_waypoint) {
-                start_wp.pos = snap_to_grid(start_wp.pos);
-                start_wp.unlock();
-            }
-            if let Some(end_wp) = route.waypoint_mut(target.end_waypoint) {
-                end_wp.pos = snap_to_grid(end_wp.pos);
-                end_wp.unlock();
-            }
-            self.reroute = true;
-            return RouteSelected { id: target.id }.into();
+            _ => Action::FinalizeEdgeDrag {
+                route: target.id,
+                start_waypoint: target.start_waypoint,
+                end_waypoint: target.end_waypoint,
+            },
         }
-        State::RouteEdgeDragged(target)
     }
-    fn handle_pin_dragged(&mut self, inner: PinDragged, response: Response) -> State {
+    fn handle_pin_dragged(&self, inner: PinDragged, event: Event) -> Action {
         let PinDragged {
             rect,
             pin,
             delta_pos,
         } = inner;
-        if let Some(pos) = response.interact_pointer_pos()
-            && let Some(rbox) = self.rect_mut(rect)
-        {
-            let center_line = rbox.gui_rect().center().x;
-            if let Some(pin_ref) = rbox.pins_mut(pin) {
-                if pos.x < center_line {
-                    pin_ref.side = PinSide::West;
-                } else {
-                    pin_ref.side = PinSide::East;
+        match event {
+            Event::Dragging { pos, delta } => {
+                let side = self
+                    .rect(rect)
+                    .map(|rbox| {
+                        if pos.x < rbox.gui_rect().center().x {
+                            PinSide::West
+                        } else {
+                            PinSide::East
+                        }
+                    })
+                    .unwrap_or(PinSide::East);
+                Action::MovePin {
+                    rect,
+                    pin,
+                    side,
+                    delta_pos: delta_pos + delta,
                 }
             }
-        }
-        if response.dragged_by(egui::PointerButton::Primary) {
-            let delta = response.drag_delta();
-            return PinDragged {
+            _ => Action::FinalizePinDrag {
                 rect,
                 pin,
-                delta_pos: delta_pos + delta,
-            }
-            .into();
-        } else if response.drag_stopped_by(egui::PointerButton::Primary) || !response.dragged() {
-            if let Some(rbox) = self.rect_mut(rect) {
-                rbox.update_pin_offset(pin, delta_pos.y);
-            }
-            self.reroute = true;
-            return Selected { rect }.into();
+                delta_y: delta_pos.y,
+            },
         }
-        PinDragged {
-            rect,
-            pin,
-            delta_pos,
-        }
-        .into()
     }
     fn handle_in_progress_auto_routing(
-        &mut self,
+        &self,
         mut auto_route: InProgressAutoRoute,
-        response: Response,
-    ) -> State {
-        if response.clicked_by(egui::PointerButton::Primary)
-            && let Some(pos) = response.interact_pointer_pos()
-        {
-            let _ = auto_route.waypoints.insert(Waypoint {
-                pos: snap_to_grid(pos),
-                locked: true,
-            });
-            return auto_route.into();
-        }
-        if let Some(pos) = response.hover_pos() {
-            auto_route.head = pos;
-            if let Some(tail) = self.find_anchor(|anchor, anchor_pos| {
-                (anchor_pos.distance(pos) < PORT_RADIUS).then_some(anchor)
-            }) && tail != auto_route.start
-            {
-                return ProposedAutoRoute {
-                    start: auto_route.start,
-                    waypoints: auto_route.waypoints,
-                    finish: tail,
-                }
-                .into();
+        event: Event,
+    ) -> Action {
+        match event {
+            Event::Clicked { pos } => {
+                let _ = auto_route.waypoints.insert(Waypoint {
+                    pos: snap_to_grid(pos),
+                    locked: true,
+                });
+                Action::TransitionAndUpdate(auto_route.into())
             }
+            Event::HoverAt(pos) => {
+                auto_route.head = pos;
+                if let Some(tail) = self.find_anchor(|anchor, anchor_pos| {
+                    (anchor_pos.distance(pos) < PORT_RADIUS).then_some(anchor)
+                }) && tail != auto_route.start
+                {
+                    Action::TransitionAndUpdate(
+                        ProposedAutoRoute {
+                            start: auto_route.start,
+                            waypoints: auto_route.waypoints,
+                            finish: tail,
+                        }
+                        .into(),
+                    )
+                } else {
+                    Action::TransitionAndUpdate(State::InProgressAutoRoute(auto_route))
+                }
+            }
+            _ => Action::TransitionAndUpdate(State::InProgressAutoRoute(auto_route)),
         }
-        State::InProgressAutoRoute(auto_route)
     }
     fn handle_proposed_auto_route(
-        &mut self,
-        mut proposed_route: ProposedAutoRoute,
-        response: Response,
-    ) -> State {
-        if response.clicked_by(egui::PointerButton::Primary) {
-            let mut waypoints = std::mem::take(&mut proposed_route.waypoints);
-            waypoints.iter_mut().for_each(|(_, wp)| wp.unlock());
-            let mut route = AutoRoute::build(
-                proposed_route.start,
-                proposed_route.finish,
-                &self.auto_route,
-                waypoints,
-                Store::default(),
-            );
-            route.update_waypoints();
-            let id = self.auto_routes.insert(route);
-            return RouteSelected { id }.into();
+        &self,
+        proposed_route: ProposedAutoRoute,
+        event: Event,
+    ) -> Action {
+        match event {
+            Event::Clicked { .. } => Action::CommitProposedRoute {
+                proposed: proposed_route,
+            },
+            Event::HoverAt(pos) => {
+                if let Some(tail) = self.find_anchor(|anchor, anchor_pos| {
+                    (anchor_pos.distance(pos) < PORT_RADIUS).then_some(anchor)
+                }) && tail != proposed_route.start
+                {
+                    Action::TransitionAndUpdate(
+                        ProposedAutoRoute {
+                            start: proposed_route.start,
+                            waypoints: proposed_route.waypoints,
+                            finish: tail,
+                        }
+                        .into(),
+                    )
+                } else {
+                    Action::TransitionAndUpdate(
+                        InProgressAutoRoute {
+                            start: proposed_route.start,
+                            waypoints: proposed_route.waypoints,
+                            head: pos,
+                        }
+                        .into(),
+                    )
+                }
+            }
+            _ => Action::TransitionAndUpdate(proposed_route.into()),
         }
-        if let Some(pos) = response.hover_pos() {
-            if let Some(tail) = self.find_anchor(|anchor, anchor_pos| {
-                (anchor_pos.distance(pos) < PORT_RADIUS).then_some(anchor)
-            }) && tail != proposed_route.start
-            {
-                return ProposedAutoRoute {
-                    start: proposed_route.start,
-                    waypoints: proposed_route.waypoints,
-                    finish: tail,
+    }
+    fn apply_action(&mut self, action: Action) {
+        match action {
+            Action::TransitionTo(state) => {
+                self.state = state;
+            }
+            Action::TransitionAndUpdate(state) => {
+                self.state = state;
+                self.update_graph(&[]);
+            }
+            Action::MoveRect { inner, next } => {
+                if let Some(bbox) = self.rect_boxes.get_mut(inner.rect) {
+                    *bbox.gui_rect_mut() = grid_rect(bbox.gui_rect().translate(inner.delta_pos));
+                }
+                self.state = next;
+                self.update_graph(&[]);
+            }
+            Action::ResizeRect { inner, next } => {
+                if let Some(bbox) = self.rect_boxes.get_mut(inner.rect) {
+                    let new_rect =
+                        grid_rect(resize_rect(&bbox.gui_rect(), inner.mode, inner.delta_pos));
+                    bbox.apply_resize(inner.mode, new_rect);
+                }
+                self.state = next;
+                self.update_graph(&[]);
+            }
+            Action::AddRouteText {
+                route: route_id,
+                button,
+            } => {
+                self.state = if let Some(route) = self.auto_routes.get_mut(route_id) {
+                    let loc = route.map_linear_distance_to_position(button.linear_position);
+                    let label_id = route.allocate_label(loc.location);
+                    EditingRouteLabelText {
+                        id: route_id,
+                        label_id,
+                    }
+                    .into()
+                } else {
+                    State::Idle
+                };
+            }
+            Action::MoveTitle { rect, offset, side } => {
+                if let Some(bbox) = self.rect_boxes.get_mut(rect)
+                    && let Some(title) = bbox.title_mut()
+                {
+                    title.offset += offset;
+                    title.side = side;
+                }
+                self.state = Selected { rect }.into();
+            }
+            Action::StartRouteCornerDrag { waypoint_id, route } => {
+                if let Some(r) = self.auto_routes.get_mut(route) {
+                    r.lock_waypoint(waypoint_id);
+                }
+                self.state = WaypointDragged { route, waypoint: waypoint_id, delta_pos: Vec2::ZERO }.into();
+            }
+            Action::AddCornerWaypointAndDrag { route, pos } => {
+                self.state = if let Some(r) = self.auto_routes.get_mut(route) {
+                    let waypoint_id = r.add_waypoint(snap_to_grid(pos));
+                    r.lock_waypoint(waypoint_id);
+                    WaypointDragged { route, waypoint: waypoint_id, delta_pos: Vec2::ZERO }.into()
+                } else {
+                    State::Idle
+                };
+            }
+            Action::StartEdgeDrag {
+                route: route_id,
+                edge_id,
+            } => {
+                if let Some(route) = self.auto_routes.get_mut(route_id)
+                    && let Some(edge) = route.edge(edge_id).cloned()
+                {
+                    eprintln!("Starting to drag route edge");
+                    eprintln!("Raw edge: {:?}", edge);
+                    let wp1 = route.add_waypoint(edge.waypoint_position_start());
+                    let wp2 = route.add_waypoint(edge.waypoint_position_end());
+                    route.lock_waypoint(wp1);
+                    route.lock_waypoint(wp2);
+                    self.state = if wp1 == wp2 {
+                        WaypointDragged { route: route_id, waypoint: wp1, delta_pos: Vec2::ZERO }.into()
+                    } else {
+                        RouteEdgeDragged {
+                            id: route_id,
+                            direction: edge.direction(),
+                            start_waypoint: wp1,
+                            end_waypoint: wp2,
+                            delta_pos: Vec2::ZERO,
+                        }
+                        .into()
+                    };
+                    self.update_graph(&[route_id]);
+                } else {
+                    self.state = State::Idle;
+                }
+            }
+            Action::AddRect { inner } => {
+                let rect = self.add_rect_box(inner.start_pos, inner.end_pos);
+                self.state = Selected { rect }.into();
+                self.update_graph(&[]);
+            }
+            Action::MovePin {
+                rect,
+                pin,
+                side,
+                delta_pos,
+            } => {
+                if let Some(rbox) = self.rect_mut(rect)
+                    && let Some(pin_ref) = rbox.pins_mut(pin)
+                {
+                    pin_ref.side = side;
+                }
+                self.state = PinDragged {
+                    rect,
+                    pin,
+                    delta_pos,
                 }
                 .into();
+                self.update_graph(&[]);
             }
-            return InProgressAutoRoute {
-                start: proposed_route.start,
-                waypoints: proposed_route.waypoints,
-                head: pos,
+            Action::FinalizePinDrag { rect, pin, delta_y } => {
+                if let Some(rbox) = self.rect_mut(rect) {
+                    rbox.update_pin_offset(pin, delta_y);
+                }
+                self.state = Selected { rect }.into();
+                self.update_graph(&[]);
             }
-            .into();
+            Action::CommitProposedRoute { mut proposed } => {
+                let mut waypoints = std::mem::take(&mut proposed.waypoints);
+                waypoints.iter_mut().for_each(|(_, wp)| wp.unlock());
+                let mut route = AutoRoute::build(
+                    proposed.start,
+                    proposed.finish,
+                    &self.auto_route,
+                    waypoints,
+                    Store::default(),
+                );
+                route.update_waypoints();
+                let id = self.auto_routes.insert(route);
+                self.state = RouteSelected { id }.into();
+                self.update_graph(&[]);
+            }
+            Action::DragEdge { target, delta } => {
+                if let Some(route) = self.auto_routes.get_mut(target.id) {
+                    route.update_waypoint(target.start_waypoint, |wp| wp.pos += delta);
+                    route.update_waypoint(target.end_waypoint, |wp| wp.pos += delta);
+                    let id = target.id;
+                    self.state = State::RouteEdgeDragged(target);
+                    self.update_graph(&[id]);
+                } else {
+                    self.state = RouteSelected { id: target.id }.into();
+                }
+            }
+            Action::FinalizeEdgeDrag {
+                route,
+                start_waypoint,
+                end_waypoint,
+            } => {
+                if let Some(r) = self.auto_routes.get_mut(route) {
+                    if let Some(wp) = r.waypoint_mut(start_waypoint) {
+                        wp.pos = snap_to_grid(wp.pos);
+                        wp.unlock();
+                    }
+                    if let Some(wp) = r.waypoint_mut(end_waypoint) {
+                        wp.pos = snap_to_grid(wp.pos);
+                        wp.unlock();
+                    }
+                }
+                self.state = RouteSelected { id: route }.into();
+                self.update_graph(&[]);
+            }
+            Action::FinalizeRouteLabelEdit { route } => {
+                if let Some(r) = self.auto_routes.get_mut(route) {
+                    r.update_waypoints();
+                }
+                self.state = State::Idle;
+            }
+            Action::DragWaypoint { inner, delta } => {
+                if let Some(route) = self.auto_routes.get_mut(inner.route) {
+                    if let Some(wp) = route.waypoint_mut(inner.waypoint) {
+                        wp.pos += delta;
+                    }
+                    let route_id = inner.route;
+                    self.state = inner.into();
+                    self.update_graph(&[route_id]);
+                } else {
+                    self.state = inner.into();
+                }
+            }
+            Action::FinalizeWaypointDrag { route } => {
+                if let Some(r) = self.auto_routes.get_mut(route) {
+                    r.iter_waypoints_mut().for_each(|(_, wp)| {
+                        wp.pos = snap_to_grid(wp.pos);
+                        wp.unlock();
+                    });
+                }
+                self.state = RouteSelected { id: route }.into();
+                self.update_graph(&[]);
+            }
+            Action::ShiftRouteLabel {
+                route,
+                label_id,
+                linear_distance_delta,
+            } => {
+                if let Some(r) = self.auto_routes.get_mut(route) {
+                    if let Some(label) = r.label_mut(label_id) {
+                        label.linear_distance += linear_distance_delta;
+                    }
+                    r.update_label_positions();
+                }
+                self.state = TextAnchorDragged { route, label_id, delta_pos: Vec2::ZERO }.into();
+            }
+            Action::FinalizeTextAnchorDrag { route } => {
+                if let Some(r) = self.auto_routes.get_mut(route) {
+                    r.update_waypoints();
+                }
+                self.state = RouteSelected { id: route }.into();
+            }
+            Action::AddPin { rect, side } => {
+                if let Some(ps) = self.rect_mut(rect)
+                    && let Some(next_offset) = ps.next_pin_offset(side)
+                {
+                    ps.add_pin("port".into(), side, next_offset);
+                }
+                self.state = Selected { rect }.into();
+                self.update_graph(&[]);
+            }
+            Action::AllocateLabelAndEdit { route, pos } => {
+                self.state = if let Some(r) = self.auto_routes.get_mut(route) {
+                    let label_id = r.allocate_label(pos);
+                    EditingRouteLabelText {
+                        id: route,
+                        label_id,
+                    }
+                    .into()
+                } else {
+                    State::Idle
+                };
+            }
         }
-        proposed_route.into()
     }
     pub fn update_state(&mut self, response: Response) {
-        let old_state = std::mem::take(&mut self.state);
-        let mut route_fixup = false;
-        self.reroute = false;
-        self.state = match old_state {
-            State::Idle => self.handle_idle_state(response),
-            State::AddText => self.handle_add_text(response),
-            State::AddTextHoveredRoute(inner) => {
-                self.handle_add_text_hovered_route(inner, response)
-            }
-            State::RouteHovered(route) => self.handle_route_hovered(route, response),
-            State::RouteSelected(route) => self.handle_route_selected(route, response),
-            State::RouteLabelHovered(inner) => self.handle_route_label_hovered(inner, response),
-            State::RouteEdgeHovered(route) => self.handle_route_edge_hovered(route, response),
-            State::RouteCornerHovered(route) => self.handle_route_corner_hovered(route, response),
-            State::WaypointHovered(inner) => self.handle_waypoint_hovered(inner, response),
-            State::TextAnchorHovered(inner) => self.handle_text_anchor_hovered(inner, response),
-            State::TextAnchorDragged(inner) => self.handle_text_anchor_dragged(inner, response),
-            State::TitleControlHovered(inner) => self.handle_title_control_hovered(inner, response),
-            State::TitleControlDragged(inner) => self.handle_title_control_dragged(inner, response),
-            State::TitleHovered(inner) => self.handle_title_hovered(inner, response),
-            State::AddTextButtonHovered(inner) => {
-                self.handle_add_text_button_hovered(inner, response)
-            }
-            State::WaypointDragged(inner) => self.handle_waypoint_dragged(inner, response),
-            State::RouteEdgeDragged(inner) => {
-                route_fixup = true;
-                self.handle_route_edge_dragged(inner, response)
-            }
-            State::Selected(inner) => self.handle_selected_state(inner, response),
-            State::PotentialResize(inner) => self.handle_potential_resize(inner, response),
-            State::PinLabelHovered(inner) => self.handle_pin_label_hovered(inner, response),
-            State::PinLabelGripHovered(inner) => {
-                self.handle_pin_label_grip_hovered(inner, response)
-            }
-            State::PinHeadHovered(inner) => self.handle_pin_head_hovered(inner, response),
-            State::ResizingRect(inner) => {
-                route_fixup = true;
-                self.handle_resizing_rect(inner, response)
-            }
-            State::MovingRect(inner) => {
-                route_fixup = true;
-                self.handle_moving_rect(inner, response)
-            }
-            State::AddingRect(inner) => {
-                route_fixup = true;
-                self.handle_adding_rect(inner, response)
-            }
-            State::Panning => self.handle_panning(response),
-            State::EditingName(inner) => self.handle_editing_name(inner, response),
-            State::EditingPinText(inner) => self.handle_editing_pin_text(inner, response),
-            State::EditingRouteLabelText(inner) => {
-                self.handle_editing_route_label_text(inner, response)
-            }
-            State::PinDragged(inner) => {
-                route_fixup = true;
-                self.handle_pin_dragged(inner, response)
-            }
-            State::InProgressAutoRoute(inner) => {
-                route_fixup = true;
-                self.handle_in_progress_auto_routing(inner, response)
-            }
-            State::ProposedAutoRoute(inner) => {
-                route_fixup = true;
-                self.handle_proposed_auto_route(inner, response)
-            }
+        let Some(event) = compute_event(&response) else {
+            return;
         };
-        if route_fixup || self.reroute {
-            self.update_graph();
-        }
+        let old_state = std::mem::take(&mut self.state);
+        let action = match old_state {
+            State::Idle => self.handle_idle_state(event),
+            State::AddText => self.handle_add_text(event),
+            State::RouteHovered(inner) => self.handle_route_hovered(inner, event),
+            State::RouteSelected(inner) => self.handle_route_selected(inner, event),
+            State::RouteLabelHovered(inner) => self.handle_route_label_hovered(inner, event),
+            State::TextAnchorHovered(inner) => self.handle_text_anchor_hovered(inner, event),
+            State::TitleControlHovered(inner) => self.handle_title_control_hovered(inner, event),
+            State::TitleHovered(inner) => self.handle_title_hovered(inner, event),
+            State::PotentialResize(inner) => self.handle_potential_resize(inner, event),
+            State::PinLabelHovered(inner) => self.handle_pin_label_hovered(inner, event),
+            State::PinLabelGripHovered(inner) => self.handle_pin_label_grip_hovered(inner, event),
+            State::PinHeadHovered(inner) => self.handle_pin_head_hovered(inner, event),
+            State::Panning => self.handle_panning(event),
+            State::EditingName(inner) => self.handle_editing_name(inner, event),
+            State::EditingPinText(inner) => self.handle_editing_pin_text(inner, event),
+            State::AddTextHoveredRoute(inner) => self.handle_add_text_hovered_route(inner, event),
+            State::RouteEdgeHovered(inner) => self.handle_route_edge_hovered(inner, event),
+            State::RouteCornerHovered(inner) => self.handle_route_corner_hovered(inner, event),
+            State::WaypointHovered(inner) => self.handle_waypoint_hovered(inner, event),
+            State::TextAnchorDragged(inner) => self.handle_text_anchor_dragged(inner, event),
+            State::TitleControlDragged(inner) => self.handle_title_control_dragged(inner, event),
+            State::AddTextButtonHovered(inner) => self.handle_add_text_button_hovered(inner, event),
+            State::WaypointDragged(inner) => self.handle_waypoint_dragged(inner, event),
+            State::RouteEdgeDragged(inner) => self.handle_route_edge_dragged(inner, event),
+            State::Selected(inner) => self.handle_selected_state(inner, event),
+            State::ResizingRect(inner) => self.handle_resizing_rect(inner, event),
+            State::MovingRect(inner) => self.handle_moving_rect(inner, event),
+            State::AddingRect(inner) => self.handle_adding_rect(inner, event),
+            State::EditingRouteLabelText(inner) => {
+                self.handle_editing_route_label_text(inner, event)
+            }
+            State::PinDragged(inner) => self.handle_pin_dragged(inner, event),
+            State::InProgressAutoRoute(inner) => self.handle_in_progress_auto_routing(inner, event),
+            State::ProposedAutoRoute(inner) => self.handle_proposed_auto_route(inner, event),
+        };
+        self.apply_action(action);
     }
     fn build_router(&self) -> RouterNG {
         let mut builder = RouterNGBuilder::default();
@@ -1419,7 +1672,7 @@ impl Drawing {
         }
         builder.build()
     }
-    fn update_graph(&mut self) {
+    fn update_graph(&mut self, ripup: &[RouteId]) {
         let mut router = self.build_router();
         let mut routes = std::mem::take(&mut self.auto_routes);
         for (id, route) in routes.iter_mut() {
@@ -1434,7 +1687,7 @@ impl Drawing {
             if Some(route.start_pos()) == self.anchor(route.start())
                 && Some(route.end_pos()) == self.anchor(route.finish())
                 && !router.is_route_blocked(route.iter_edges().map(|(_, edge)| edge))
-                && !self.ripup_set.contains(&id)
+                && !ripup.contains(&id)
             {
                 router.add_existing_route(route.iter_edges().map(|(_, edge)| edge), WIRE_COST);
             } else {
