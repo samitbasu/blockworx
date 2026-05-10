@@ -68,6 +68,10 @@ pub trait BaseShape {
     fn anchor_point(&self, id: PinId) -> Option<Pos2> {
         self.anchor_point_with_rect(self.gui_rect(), id)
     }
+    fn new_pin_location(&self, pos: Pos2) -> Option<(PinSide, f32)> {
+        let _ = pos;
+        None
+    }
     // Pin management — default no-ops, overridden by shapes that support it.
     fn add_pin_button_east(&self) -> Option<Pos2> {
         None

@@ -2,10 +2,7 @@ use egui::{CursorIcon, Pos2, Vec2};
 
 use crate::{
     store::*,
-    widget::{
-        auto_route::AddTextButton, direction::RouteDirection, drawing::LineAnchor,
-        waypoint::Waypoint,
-    },
+    widget::{auto_route::AddTextButton, direction::RouteDirection, pin::PinSide},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -19,6 +16,7 @@ pub enum RenderMode {
     EditingName,
     EditingPinText { pin: PinId },
     TitleDragged { delta: Vec2 },
+    PinAddHovered { side: PinSide, offset: f32 },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -39,7 +37,6 @@ pub enum State {
     #[from(skip)]
     AddText,
     AddTextHoveredRoute(AddTextHoveredRoute),
-    AddingRect(AddingRect),
     MovingRect(MovingRect),
     Selected(Selected),
     PotentialResize(PotentialResize),
@@ -49,9 +46,6 @@ pub enum State {
     PinLabelHovered(PinLabelHovered),
     PinLabelGripHovered(PinLabelGripHovered),
     EditingPinText(EditingPinText),
-    PinHeadHovered(PinHeadHovered),
-    InProgressAutoRoute(InProgressAutoRoute),
-    ProposedAutoRoute(ProposedAutoRoute),
     RouteHovered(RouteHovered),
     RouteSelected(RouteSelected),
     RouteEdgeHovered(RouteEdgeHovered),
@@ -76,12 +70,6 @@ impl State {
     pub fn panning() -> Self {
         State::Panning
     }
-}
-
-#[derive(Clone, PartialEq, Eq, Default, Debug)]
-pub struct AddingRect {
-    pub start_pos: Pos2,
-    pub end_pos: Pos2,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -182,12 +170,6 @@ pub struct EditingPinText {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PinHeadHovered {
-    pub rect: RectId,
-    pub pin: PinId,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ResizingRect {
     pub rect: RectId,
     pub mode: ResizeMode,
@@ -218,20 +200,6 @@ pub struct TextAnchorDragged {
     pub route: RouteId,
     pub label_id: WireLabelId,
     pub delta_pos: Vec2,
-}
-
-#[derive(PartialEq, Debug)]
-pub struct InProgressAutoRoute {
-    pub start: LineAnchor,
-    pub waypoints: Store<WaypointId, Waypoint>,
-    pub head: Pos2,
-}
-
-#[derive(PartialEq, Debug)]
-pub struct ProposedAutoRoute {
-    pub start: LineAnchor,
-    pub waypoints: Store<WaypointId, Waypoint>,
-    pub finish: LineAnchor,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -286,9 +254,9 @@ impl State {
             {
                 RenderMode::Selected
             }
-            State::PinHeadHovered(PinHeadHovered { rect, pin }) if id == *rect => {
-                RenderMode::PinHeadHovered { pin: *pin }
-            }
+            //            State::PinHeadHovered(PinHeadHovered { rect, pin }) if id == *rect => {
+            //                RenderMode::PinHeadHovered { pin: *pin }
+            //            }
             State::ResizingRect(ResizingRect {
                 rect,
                 mode,
@@ -332,7 +300,7 @@ impl State {
             | State::AddText
             | State::AddTextHoveredRoute { .. } => CursorIcon::Text,
             State::PinLabelGripHovered { .. } => CursorIcon::Grab,
-            State::PinHeadHovered { .. } => CursorIcon::Crosshair,
+            //            State::PinHeadHovered { .. } => CursorIcon::Crosshair,
             State::PinDragged { .. } => CursorIcon::Grabbing,
             State::RouteEdgeHovered(inner) => match inner.direction {
                 RouteDirection::Horizontal => CursorIcon::ResizeVertical,

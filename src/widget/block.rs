@@ -225,6 +225,31 @@ impl BaseShape for Block {
     fn update_pin_offset(&mut self, pin_id: PinId, delta_y: f32) {
         self.update_pin_offset_inner(pin_id, delta_y);
     }
+    fn new_pin_location(&self, pos: Pos2) -> Option<(PinSide, f32)> {
+        let left_top = self.inner.left_top();
+        let offset = round_to_grid(pos.y - left_top.y);
+        if offset < 0.0 || offset > self.inner.height() {
+            return None;
+        }
+        if (pos.x - left_top.x).abs() < GRID_SIZE / 2.0 {
+            if self.pins.iter().any(|(_, p)| {
+                p.side == PinSide::West && (p.offset - offset).abs() < GRID_SIZE * 0.2
+            }) {
+                return None;
+            }
+            return Some((PinSide::West, offset));
+        }
+        let right_top = self.inner.right_top();
+        if (pos.x - right_top.x).abs() < GRID_SIZE / 2.0 {
+            if self.pins.iter().any(|(_, p)| {
+                p.side == PinSide::East && (p.offset - offset).abs() < GRID_SIZE * 0.2
+            }) {
+                return None;
+            }
+            return Some((PinSide::East, offset));
+        }
+        None
+    }
     fn title_anchor(&self) -> Option<Pos2> {
         let (pos, _) = block_title_position(self.inner, &self.title);
         Some(pos)
@@ -235,6 +260,21 @@ impl BaseShape for Block {
             RenderMode::Normal => {
                 draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(self.pins.values(), bbox, GripState::Hidden, ui);
+            }
+            RenderMode::PinAddHovered { side, offset } => {
+                draw_block_frame(bbox, &self.title, ui);
+                render_pins_with_box(self.pins.values(), bbox, GripState::Hidden, ui);
+                let theme = get_theme(ui);
+                let button_pos = match side {
+                    PinSide::East => bbox.right_top() + vec2(0.0, offset),
+                    PinSide::West => bbox.left_top() + vec2(0.0, offset),
+                };
+                ui.painter().circle(
+                    button_pos,
+                    PORT_RADIUS,
+                    theme.add_button_fill,
+                    (1.0, theme.shape_stroke),
+                );
             }
             RenderMode::Selected => {
                 draw_block_frame(bbox, &self.title, ui);

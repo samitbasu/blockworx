@@ -34,14 +34,19 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, self.theme));
         egui::CentralPanel::default().show(ctx, |ui| {
-            let scene = Scene::new()
-                .zoom_range(0.1..=4.0)
-                .drag_pan_buttons(DragPanButtons::SECONDARY);
+            let scene = if self.drawing.mode == Mode::Move {
+                Scene::new()
+                    .zoom_range(0.1..=4.0)
+                    .drag_pan_buttons(DragPanButtons::all())
+            } else {
+                Scene::new()
+                    .zoom_range(0.1..=4.0)
+                    .drag_pan_buttons(DragPanButtons::SECONDARY)
+            };
             let response = scene.show(ui, &mut self.scene_rect, |ui| {
                 self.drawing.render(ui);
             });
             self.drawing.update_state(response.response);
-            let screen_height = ctx.content_rect().height();
             egui::Area::new(egui::Id::new("mode_toolbar"))
                 .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, GRID_SIZE))
                 .show(ctx, |ui| {

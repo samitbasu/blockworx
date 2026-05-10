@@ -1,5 +1,6 @@
 pub mod auto_route;
 pub mod block;
+pub mod data;
 pub mod direction;
 pub mod drawing;
 pub mod edge;
@@ -9,5 +10,6 @@ pub mod port;
 pub mod render;
 pub mod segmentkind;
 pub mod shape;
+pub mod tool;
 pub mod waypoint;
 pub mod wire_label;

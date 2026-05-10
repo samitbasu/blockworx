@@ -8,22 +8,23 @@ use crate::{
         GRID_SIZE, MOVE_HOVER_DISTANCE, PORT_HEIGHT, PORT_RADIUS, ROUTE_TEXT_SIZE, SHIM, grid_rect,
         round_to_grid, snap_to_grid,
     },
-    router::{RouterNG, RouterNGBuilder, TaggedPoint, WIRE_COST, cost::COST_ZERO},
+    router::{RouterNG, RouterNGBuilder, WIRE_COST, cost::COST_ZERO},
     state::*,
     store::*,
     theme::get_theme,
     turtle::Mark,
     widget::{
         auto_route::{AddTextButton, AutoRoute},
-        block::{Block, TitleSide, control_corner, resize_rect},
+        block::{TitleSide, control_corner, resize_rect},
+        data::Data,
         direction::RouteDirection,
         pin::PinSide,
-        port::Port,
         render::{
             FocusResult, estimate_bbox_for_pin_text, get_control_pin_bbox, get_hamburger_rect,
             render_path_with_chamfered_corners,
         },
         shape::{BaseShape, Shape},
+        tool::{new_block::NewBlock, new_pin::NewPin, route::Route},
         waypoint::Waypoint,
     },
 };
@@ -48,12 +49,13 @@ pub struct LineAnchor {
 
 #[derive(Default)]
 pub struct Drawing {
-    rect_boxes: Store<RectId, Shape>,
-    auto_routes: Store<RouteId, AutoRoute>,
+    data: Data,
     state: State,
-    auto_route: Vec<TaggedPoint>,
     debug_marks: Vec<Mark>,
     pub mode: Mode,
+    new_block: NewBlock,
+    route: Route,
+    new_pin: NewPin,
 }
 
 enum RouteRenderMode {
@@ -120,9 +122,6 @@ enum Action {
         side: PinSide,
         delta_pos: Vec2,
     },
-    AddRect {
-        inner: AddingRect,
-    },
     AllocateLabelAndEdit {
         route: RouteId,
         pos: Pos2,
@@ -162,9 +161,6 @@ enum Action {
         label_id: WireLabelId,
         linear_distance_delta: f32,
     },
-    CommitProposedRoute {
-        proposed: ProposedAutoRoute,
-    },
     DragEdge {
         target: RouteEdgeDragged,
         delta: Vec2,
@@ -190,22 +186,8 @@ enum Action {
 }
 
 impl Drawing {
-    pub fn rect(&self, id: RectId) -> Option<&Shape> {
-        self.rect_boxes.get(id)
-    }
-    pub fn rect_mut(&mut self, id: RectId) -> Option<&mut Shape> {
-        self.rect_boxes.get_mut(id)
-    }
-    pub fn add_rect_box(&mut self, start: Pos2, end: Pos2) -> RectId {
-        self.rect_boxes
-            .insert(Block::new("Untitled".to_string(), Rect::from_two_pos(start, end)).into())
-    }
-    pub fn add_port_box(&mut self, pin_name: String, side: PinSide, inner: Rect) -> RectId {
-        self.rect_boxes
-            .insert(Port::new(pin_name, side, inner).into())
-    }
     pub fn routing_box(&self, id: RectId) -> Option<Rect> {
-        let rect = self.rect(id)?.gui_rect();
+        let rect = self.data.rect(id)?.gui_rect();
         if let State::MovingRect(inner) = &self.state
             && inner.rect == id
         {
@@ -225,7 +207,7 @@ impl Drawing {
             && anchor.pin == inner.pin
         {
             let center_line = effective_rect.center().x;
-            let rect = self.rect(anchor.rect)?;
+            let rect = self.data.rect(anchor.rect)?;
             let pin_pos = rect.anchor_point(anchor.pin)?;
             let current_pos = pin_pos + inner.delta_pos;
             let anchor_x = if current_pos.x < center_line {
@@ -236,12 +218,13 @@ impl Drawing {
             let anchor_y = round_to_grid(current_pos.y);
             Some(snap_to_grid(pos2(anchor_x, anchor_y)))
         } else {
-            self.rect(anchor.rect)
+            self.data
+                .rect(anchor.rect)
                 .and_then(|rect| rect.anchor_point_with_rect(effective_rect, anchor.pin))
         }
     }
     pub fn with_anchors(&self, mut f: impl FnMut(LineAnchor)) {
-        self.rect_boxes.iter().for_each(|(rect_id, rect)| {
+        self.data.rect_boxes().for_each(|(rect_id, rect)| {
             rect.with_pins(|pin_id, _| {
                 f(LineAnchor {
                     rect: rect_id,
@@ -380,7 +363,20 @@ impl Drawing {
     }
     pub fn render(&mut self, ui: &mut Ui) {
         let theme = get_theme(ui);
-        ui.output_mut(|o| o.cursor_icon = self.state.cursor());
+        let primary_button_down = ui.input(|i| i.pointer.any_down());
+        ui.output_mut(|o| {
+            o.cursor_icon = if self.mode == Mode::Block || self.mode == Mode::Pin {
+                egui::CursorIcon::Crosshair
+            } else if self.mode == Mode::Move {
+                if matches!(self.state, State::Panning) || primary_button_down {
+                    egui::CursorIcon::Grabbing
+                } else {
+                    egui::CursorIcon::Grab
+                }
+            } else {
+                self.state.cursor()
+            };
+        });
         (-100..=100).map(|y| y as f32 * GRID_SIZE).for_each(|h| {
             ui.painter()
                 .hline(-10_000.0f32..=10_000.0f32, h, (0.15, theme.grid_line));
@@ -389,76 +385,31 @@ impl Drawing {
             ui.painter()
                 .vline(v, -10_000.0f32..=10_000.0f32, (0.15, theme.grid_line));
         });
-        crate::turtle::draw(&self.debug_marks, ui.painter());
-        for route in self.auto_routes.values() {
+        //        crate::turtle::draw(&self.debug_marks, ui.painter());
+        for (_, route) in self.data.auto_routes() {
             self.render_route(ui, &route, RouteRenderMode::Normal);
         }
-        for (id, rect_box) in self.rect_boxes.iter_mut() {
+        for (id, rect_box) in self.data.rect_boxes_mut() {
             let mode = self.state.render_mode_for_id(id);
             if rect_box.render(mode, ui) == FocusResult::LostFocus {
                 self.state = Selected { rect: id }.into();
             }
         }
-        if let State::AddingRect(AddingRect { start_pos, end_pos }) = &self.state {
-            let rect = Rect::from_two_pos(*start_pos, *end_pos);
-            ui.painter().rect(
-                rect,
-                3.0,
-                Color32::TRANSPARENT,
-                (1.0, theme.selection_frame),
-                StrokeKind::Middle,
-            );
-        }
-        if let State::InProgressAutoRoute(inner) = &self.state {
-            let points = self
-                .auto_route
-                .iter()
-                .map(|p| p.pos.into())
-                .collect::<Vec<Pos2>>();
-            let points = render_path_with_chamfered_corners(&points);
-            points.render(ui, (0.5, theme.route_in_progress));
-            inner.waypoints.iter().for_each(|(_, wp)| {
-                ui.painter()
-                    .circle_filled(wp.pos, PORT_RADIUS, theme.route_in_progress);
-            });
-        }
-        if let State::ProposedAutoRoute(inner) = &self.state {
-            let points = self
-                .auto_route
-                .iter()
-                .map(|p| p.pos.into())
-                .collect::<Vec<Pos2>>();
-            let points = render_path_with_chamfered_corners(&points);
-            points.render(ui, (1.5, theme.route_in_progress));
-            if let Some(start_pos) = self.anchor(inner.start) {
-                ui.painter().circle(
-                    start_pos,
-                    PORT_RADIUS,
-                    theme.route_proposed_endpoint,
-                    (0.5, theme.route_proposed_endpoint),
-                );
-            }
-            if let Some(end_pos) = self.anchor(inner.finish) {
-                ui.painter().circle(
-                    end_pos,
-                    PORT_RADIUS,
-                    theme.route_proposed_endpoint,
-                    (0.5, theme.route_proposed_endpoint),
-                );
-            }
-        }
+        self.new_block.render(ui);
+        self.route.render(&self.data, ui);
+        self.new_pin.render(ui);
         if let State::RouteHovered(target) = &self.state
-            && let Some(route) = self.auto_routes.get(target.id)
+            && let Some(route) = self.data.auto_route(target.id)
         {
             self.render_route(ui, route, RouteRenderMode::Highlighted);
         }
         if let State::RouteSelected(target) = &self.state
-            && let Some(route) = self.auto_routes.get(target.id)
+            && let Some(route) = self.data.auto_route(target.id)
         {
             self.render_route(ui, route, RouteRenderMode::Selected);
         }
         if let State::RouteEdgeHovered(target) = &self.state
-            && let Some(route) = self.auto_routes.get(target.id)
+            && let Some(route) = self.data.auto_route(target.id)
         {
             self.render_route(ui, route, RouteRenderMode::Selected);
             if let Some(edge) = route.edge(target.edge_index) {
@@ -472,7 +423,7 @@ impl Drawing {
             }
         }
         if let State::RouteCornerHovered(target) = &self.state
-            && let Some(route) = self.auto_routes.get(target.id)
+            && let Some(route) = self.data.auto_route(target.id)
         {
             self.render_route(ui, route, RouteRenderMode::Highlighted);
             if let Some(edge_1) = route.edge(target.edge_1) {
@@ -486,7 +437,7 @@ impl Drawing {
             }
         }
         if let State::RouteEdgeDragged(target) = &self.state
-            && let Some(route) = self.auto_routes.get(target.id)
+            && let Some(route) = self.data.auto_route(target.id)
         {
             let projected_path = route
                 .points()
@@ -497,7 +448,7 @@ impl Drawing {
             points.render(ui, (1.5, theme.edge_drag_preview));
         }
         if let State::WaypointHovered(target) = &self.state
-            && let Some(route) = self.auto_routes.get(target.route)
+            && let Some(route) = self.data.auto_route(target.route)
         {
             self.render_route(ui, route, RouteRenderMode::Highlighted);
             if let Some(wp) = route.waypoint(target.waypoint) {
@@ -510,7 +461,7 @@ impl Drawing {
             }
         }
         if let State::WaypointDragged(target) = &self.state
-            && let Some(route) = self.auto_routes.get(target.route)
+            && let Some(route) = self.data.auto_route(target.route)
         {
             if let Some(wp) = route.waypoint(target.waypoint) {
                 self.render_route(ui, route, RouteRenderMode::Selected);
@@ -523,7 +474,7 @@ impl Drawing {
             }
         }
         if let State::TextAnchorHovered(target) = &self.state
-            && let Some(route) = self.auto_routes.get(target.route)
+            && let Some(route) = self.data.auto_route(target.route)
         {
             self.render_route(ui, route, RouteRenderMode::Selected);
             if let Some(label) = route.label(target.label_id) {
@@ -534,7 +485,7 @@ impl Drawing {
             }
         }
         if let State::TextAnchorDragged(target) = &self.state
-            && let Some(route) = self.auto_routes.get(target.route)
+            && let Some(route) = self.data.auto_route(target.route)
         {
             self.render_route(ui, route, RouteRenderMode::Selected);
             if let Some(label) = route.label(target.label_id) {
@@ -550,7 +501,7 @@ impl Drawing {
             }
         }
         if let State::EditingRouteLabelText(target) = &self.state
-            && let Some(route) = self.auto_routes.get_mut(target.id)
+            && let Some(route) = self.data.auto_route_mut(target.id)
             && let Some((label_center, label)) = route.label_edit_details(target.label_id)
         {
             let editor_width = 25.0;
@@ -578,7 +529,7 @@ impl Drawing {
     }
     fn handle_route_hover_check(&self, id: RouteId, event: Event) -> Action {
         if let Event::HoverAt(hover_pos) = event
-            && let Some(route) = self.auto_routes.get(id)
+            && let Some(route) = self.data.auto_route(id)
         {
             for (waypoint_id, waypoint) in route.iter_waypoints() {
                 if waypoint.pos.distance(hover_pos) <= PORT_RADIUS * 1.5 {
@@ -630,7 +581,7 @@ impl Drawing {
     }
     fn handle_add_text(&self, event: Event) -> Action {
         if let Event::HoverAt(pos) = event {
-            for (id, route) in self.auto_routes.iter() {
+            for (id, route) in self.data.auto_routes() {
                 if let Some(edge_id) = route.hovered_edge(pos) {
                     return Action::TransitionTo(
                         AddTextHoveredRoute {
@@ -652,7 +603,7 @@ impl Drawing {
                 pos,
             },
             Event::HoverAt(pos) => {
-                if let Some(route) = self.auto_routes.get(inner.route)
+                if let Some(route) = self.data.auto_route(inner.route)
                     && let Some(edge_id) = route.hovered_edge(pos)
                 {
                     Action::TransitionTo(
@@ -682,9 +633,9 @@ impl Drawing {
                 }
                 Action::TransitionTo(State::Idle)
             }
-            Event::HoverAt(hover_pos) => {
+            Event::HoverAt(hover_pos) if self.mode == Mode::Select => {
                 if let Some(id) = self.route_hit(hover_pos) {
-                    Action::TransitionTo(RouteHovered { id }.into())
+                    return Action::TransitionTo(RouteHovered { id }.into());
                 } else {
                     Action::TransitionTo(State::Idle)
                 }
@@ -693,7 +644,7 @@ impl Drawing {
         }
     }
     fn route_hit(&self, pos: Pos2) -> Option<RouteId> {
-        for (id, route) in self.auto_routes.iter() {
+        for (id, route) in self.data.auto_routes() {
             if route.hovered_edge(pos).is_some() {
                 return Some(id);
             }
@@ -701,13 +652,15 @@ impl Drawing {
         None
     }
     fn rect_at(&self, pos: Pos2) -> Option<RectId> {
-        self.rect_boxes
-            .iter()
+        self.data
+            .rect_boxes()
             .find(|(_, r)| r.gui_rect().contains(pos))
             .map(|(id, _)| id)
     }
     fn drag_start_on_canvas(&self, pos: Pos2) -> Action {
-        if let Some(id) = self.rect_at(pos) {
+        if self.mode == Mode::Move {
+            Action::TransitionTo(State::panning())
+        } else if let Some(id) = self.rect_at(pos) {
             Action::TransitionTo(
                 MovingRect {
                     rect: id,
@@ -716,20 +669,14 @@ impl Drawing {
                 .into(),
             )
         } else {
-            Action::TransitionTo(
-                AddingRect {
-                    start_pos: pos,
-                    end_pos: snap_to_grid(pos),
-                }
-                .into(),
-            )
+            Action::TransitionTo(State::Idle)
         }
     }
     fn handle_selected_state(&self, inner: Selected, event: Event) -> Action {
         let rect = inner.rect;
         match event {
             Event::DoubleClicked { pos } => {
-                if let Some(rect_box) = self.rect(rect)
+                if let Some(rect_box) = self.data.rect(rect)
                     && let Shape::Block(block) = rect_box
                     && block.title_bbox().contains(pos)
                 {
@@ -738,7 +685,7 @@ impl Drawing {
             }
             Event::Clicked { pos } => {
                 for &side in &[PinSide::East, PinSide::West] {
-                    if let Some(bbox) = self.rect(rect) {
+                    if let Some(bbox) = self.data.rect(rect) {
                         let btn = if side == PinSide::East {
                             bbox.add_pin_button_east()
                         } else {
@@ -758,7 +705,7 @@ impl Drawing {
                 return Action::TransitionTo(State::idle());
             }
             Event::DragStarted { pos } => {
-                if let Some(hbox) = self.rect(rect)
+                if let Some(hbox) = self.data.rect(rect)
                     && let Some(lid) = hbox.find_pin(|lid, _pin| {
                         if hbox.pin_head_pos(lid)?.distance(pos) <= PORT_RADIUS {
                             Some(lid)
@@ -779,7 +726,7 @@ impl Drawing {
                 return self.drag_start_on_canvas(pos);
             }
             Event::HoverAt(hover_pos) => {
-                if let Some(bbox) = self.rect(rect) {
+                if let Some(bbox) = self.data.rect(rect) {
                     for &mode in bbox.resize_modes() {
                         if hover_pos.distance(control_corner(&bbox.gui_rect(), mode))
                             < MOVE_HOVER_DISTANCE
@@ -812,7 +759,6 @@ impl Drawing {
                         let pin_location = get_control_pin_bbox(bbox.gui_rect(), pin);
                         if pin_location.contains(hover_pos) {
                             eprintln!("Hovering over pin for label {}", pin.text);
-                            return Some(PinHeadHovered { rect, pin: pid }.into());
                         }
                         None
                     }) {
@@ -828,7 +774,7 @@ impl Drawing {
         let PotentialResize { rect, mode } = inner;
         match event {
             Event::HoverAt(hover_pos) => {
-                if let Some(bbox) = self.rect(rect)
+                if let Some(bbox) = self.data.rect(rect)
                     && hover_pos.distance(control_corner(&bbox.gui_rect(), mode))
                         >= MOVE_HOVER_DISTANCE
                 {
@@ -853,7 +799,7 @@ impl Drawing {
         let TitleControlHovered { rect } = inner;
         match event {
             Event::HoverAt(hover_pos) => {
-                if let Some(bbox) = self.rect(rect)
+                if let Some(bbox) = self.data.rect(rect)
                     && let Some(title_anchor) = bbox.title_anchor()
                     && hover_pos.distance(title_anchor) >= MOVE_HOVER_DISTANCE
                 {
@@ -878,7 +824,7 @@ impl Drawing {
         let PinLabelHovered { rect, pin } = inner;
         match event {
             Event::HoverAt(hover_pos) => {
-                if let Some(bbox) = self.rect(rect)
+                if let Some(bbox) = self.data.rect(rect)
                     && let Some(pin_ref) = bbox.pin(pin)
                 {
                     let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin_ref);
@@ -896,7 +842,7 @@ impl Drawing {
     }
     fn handle_route_label_hovered(&self, route: RouteLabelHovered, event: Event) -> Action {
         if let Event::HoverAt(hover_pos) = event
-            && let Some(auto_route) = self.auto_routes.get(route.id)
+            && let Some(auto_route) = self.data.auto_route(route.id)
         {
             let Some(edge_index) = auto_route.hovered_edge(hover_pos) else {
                 return Action::TransitionTo(State::Idle);
@@ -922,7 +868,7 @@ impl Drawing {
                 );
             }
             Event::HoverAt(hover_pos) => {
-                if let Some(bbox) = self.rect(rect)
+                if let Some(bbox) = self.data.rect(rect)
                     && let Some(pin_ref) = bbox.pin(pin)
                 {
                     let hamburger_rect =
@@ -936,38 +882,11 @@ impl Drawing {
         }
         Action::TransitionTo(PinLabelGripHovered { rect, pin }.into())
     }
-    fn handle_pin_head_hovered(&self, inner: PinHeadHovered, event: Event) -> Action {
-        let PinHeadHovered { rect, pin } = inner;
-        match event {
-            Event::HoverAt(hover_pos) => {
-                if let Some(bbox) = self.rect(rect)
-                    && let Some(pin_ref) = bbox.pin(pin)
-                {
-                    let pin_location = get_control_pin_bbox(bbox.gui_rect(), pin_ref);
-                    if !pin_location.contains(hover_pos) {
-                        return Action::TransitionTo(Selected { rect }.into());
-                    }
-                }
-            }
-            Event::Clicked { pos } => {
-                return Action::TransitionTo(
-                    InProgressAutoRoute {
-                        start: LineAnchor { rect, pin },
-                        waypoints: Store::default(),
-                        head: pos,
-                    }
-                    .into(),
-                );
-            }
-            _ => {}
-        }
-        Action::TransitionTo(PinHeadHovered { rect, pin }.into())
-    }
     fn handle_route_corner_hovered(&self, inner: RouteCornerHovered, event: Event) -> Action {
         match event {
             Event::DragStarted { pos } | Event::Dragging { pos, .. } => {
                 eprintln!("Starting to drag route corner");
-                if let Some(route) = self.auto_routes.get(inner.id) {
+                if let Some(route) = self.data.auto_route(inner.id) {
                     if let Some(waypoint_id) = route.hit_waypoint(pos, PORT_RADIUS) {
                         return Action::StartRouteCornerDrag {
                             waypoint_id,
@@ -1012,8 +931,8 @@ impl Drawing {
         match event {
             Event::DragStarted { .. } | Event::Dragging { .. } => {
                 if self
-                    .auto_routes
-                    .get(target.id)
+                    .data
+                    .auto_route(target.id)
                     .and_then(|r| r.edge(target.edge_index))
                     .is_some()
                 {
@@ -1068,7 +987,7 @@ impl Drawing {
                 return Action::TransitionTo(EditingName { rect: inner.rect }.into());
             }
             Event::HoverAt(pos) => {
-                if let Some(block) = self.rect(inner.rect)
+                if let Some(block) = self.data.rect(inner.rect)
                     && let Shape::Block(block) = &block
                     && block.title_bbox().contains(pos)
                 {
@@ -1090,7 +1009,7 @@ impl Drawing {
                 .into(),
             ),
             _ => {
-                let side = if let Some(Shape::Block(block)) = self.rect(rect) {
+                let side = if let Some(Shape::Block(block)) = self.data.rect(rect) {
                     block.title().map(|t| t.side).unwrap_or(TitleSide::Top)
                 } else {
                     TitleSide::Top
@@ -1108,8 +1027,8 @@ impl Drawing {
         match event {
             Event::Dragging { delta, .. } => {
                 let linear_distance_delta = self
-                    .auto_routes
-                    .get(inner.route)
+                    .data
+                    .auto_route(inner.route)
                     .and_then(|route| {
                         let label_distance = route.label(inner.label_id)?.linear_distance;
                         let (direction, flip_sign) =
@@ -1181,6 +1100,7 @@ impl Drawing {
                 delta: raw_delta, ..
             } => {
                 let constrained_delta = self
+                    .data
                     .rect(rect)
                     .map(|b| b.constrain_resize_delta(raw_delta))
                     .unwrap_or(raw_delta);
@@ -1217,29 +1137,6 @@ impl Drawing {
                 inner: MovingRect { rect, delta_pos },
                 next: Selected { rect }.into(),
             },
-        }
-    }
-    fn handle_adding_rect(&self, inner: AddingRect, event: Event) -> Action {
-        let AddingRect { start_pos, end_pos } = inner;
-        match event {
-            Event::Dragging { pos, .. } => Action::TransitionAndUpdate(
-                AddingRect {
-                    start_pos: snap_to_grid(start_pos),
-                    end_pos: snap_to_grid(pos),
-                }
-                .into(),
-            ),
-            Event::DragStopped => {
-                let candidate_rect = Rect::from_two_pos(start_pos, end_pos);
-                if candidate_rect.width() > GRID_SIZE && candidate_rect.height() > GRID_SIZE {
-                    Action::AddRect {
-                        inner: AddingRect { start_pos, end_pos },
-                    }
-                } else {
-                    Action::TransitionAndUpdate(State::idle())
-                }
-            }
-            _ => Action::TransitionAndUpdate(AddingRect { start_pos, end_pos }.into()),
         }
     }
     fn handle_panning(&self, event: Event) -> Action {
@@ -1301,6 +1198,7 @@ impl Drawing {
         match event {
             Event::Dragging { pos, delta } => {
                 let side = self
+                    .data
                     .rect(rect)
                     .map(|rbox| {
                         if pos.x < rbox.gui_rect().center().x {
@@ -1324,76 +1222,6 @@ impl Drawing {
             },
         }
     }
-    fn handle_in_progress_auto_routing(
-        &self,
-        mut auto_route: InProgressAutoRoute,
-        event: Event,
-    ) -> Action {
-        match event {
-            Event::Clicked { pos } => {
-                let _ = auto_route.waypoints.insert(Waypoint {
-                    pos: snap_to_grid(pos),
-                    locked: true,
-                });
-                Action::TransitionAndUpdate(auto_route.into())
-            }
-            Event::HoverAt(pos) => {
-                auto_route.head = pos;
-                if let Some(tail) = self.find_anchor(|anchor, anchor_pos| {
-                    (anchor_pos.distance(pos) < PORT_RADIUS).then_some(anchor)
-                }) && tail != auto_route.start
-                {
-                    Action::TransitionAndUpdate(
-                        ProposedAutoRoute {
-                            start: auto_route.start,
-                            waypoints: auto_route.waypoints,
-                            finish: tail,
-                        }
-                        .into(),
-                    )
-                } else {
-                    Action::TransitionAndUpdate(State::InProgressAutoRoute(auto_route))
-                }
-            }
-            _ => Action::TransitionAndUpdate(State::InProgressAutoRoute(auto_route)),
-        }
-    }
-    fn handle_proposed_auto_route(
-        &self,
-        proposed_route: ProposedAutoRoute,
-        event: Event,
-    ) -> Action {
-        match event {
-            Event::Clicked { .. } => Action::CommitProposedRoute {
-                proposed: proposed_route,
-            },
-            Event::HoverAt(pos) => {
-                if let Some(tail) = self.find_anchor(|anchor, anchor_pos| {
-                    (anchor_pos.distance(pos) < PORT_RADIUS).then_some(anchor)
-                }) && tail != proposed_route.start
-                {
-                    Action::TransitionAndUpdate(
-                        ProposedAutoRoute {
-                            start: proposed_route.start,
-                            waypoints: proposed_route.waypoints,
-                            finish: tail,
-                        }
-                        .into(),
-                    )
-                } else {
-                    Action::TransitionAndUpdate(
-                        InProgressAutoRoute {
-                            start: proposed_route.start,
-                            waypoints: proposed_route.waypoints,
-                            head: pos,
-                        }
-                        .into(),
-                    )
-                }
-            }
-            _ => Action::TransitionAndUpdate(proposed_route.into()),
-        }
-    }
     fn apply_action(&mut self, action: Action) {
         match action {
             Action::TransitionTo(state) => {
@@ -1404,14 +1232,14 @@ impl Drawing {
                 self.update_graph(&[]);
             }
             Action::MoveRect { inner, next } => {
-                if let Some(bbox) = self.rect_boxes.get_mut(inner.rect) {
+                if let Some(bbox) = self.data.rect_mut(inner.rect) {
                     *bbox.gui_rect_mut() = grid_rect(bbox.gui_rect().translate(inner.delta_pos));
                 }
                 self.state = next;
                 self.update_graph(&[]);
             }
             Action::ResizeRect { inner, next } => {
-                if let Some(bbox) = self.rect_boxes.get_mut(inner.rect) {
+                if let Some(bbox) = self.data.rect_mut(inner.rect) {
                     let new_rect =
                         grid_rect(resize_rect(&bbox.gui_rect(), inner.mode, inner.delta_pos));
                     bbox.apply_resize(inner.mode, new_rect);
@@ -1423,7 +1251,7 @@ impl Drawing {
                 route: route_id,
                 button,
             } => {
-                self.state = if let Some(route) = self.auto_routes.get_mut(route_id) {
+                self.state = if let Some(route) = self.data.auto_route_mut(route_id) {
                     let loc = route.map_linear_distance_to_position(button.linear_position);
                     let label_id = route.allocate_label(loc.location);
                     EditingRouteLabelText {
@@ -1436,7 +1264,7 @@ impl Drawing {
                 };
             }
             Action::MoveTitle { rect, offset, side } => {
-                if let Some(bbox) = self.rect_boxes.get_mut(rect)
+                if let Some(bbox) = self.data.rect_mut(rect)
                     && let Some(title) = bbox.title_mut()
                 {
                     title.offset += offset;
@@ -1445,7 +1273,7 @@ impl Drawing {
                 self.state = Selected { rect }.into();
             }
             Action::StartRouteCornerDrag { waypoint_id, route } => {
-                if let Some(r) = self.auto_routes.get_mut(route) {
+                if let Some(r) = self.data.auto_route_mut(route) {
                     r.lock_waypoint(waypoint_id);
                 }
                 self.state = WaypointDragged {
@@ -1456,7 +1284,7 @@ impl Drawing {
                 .into();
             }
             Action::AddCornerWaypointAndDrag { route, pos } => {
-                self.state = if let Some(r) = self.auto_routes.get_mut(route) {
+                self.state = if let Some(r) = self.data.auto_route_mut(route) {
                     let waypoint_id = r.add_waypoint(snap_to_grid(pos));
                     r.lock_waypoint(waypoint_id);
                     WaypointDragged {
@@ -1473,7 +1301,7 @@ impl Drawing {
                 route: route_id,
                 edge_id,
             } => {
-                if let Some(route) = self.auto_routes.get_mut(route_id)
+                if let Some(route) = self.data.auto_route_mut(route_id)
                     && let Some(edge) = route.edge(edge_id).cloned()
                 {
                     eprintln!("Starting to drag route edge");
@@ -1504,18 +1332,13 @@ impl Drawing {
                     self.state = State::Idle;
                 }
             }
-            Action::AddRect { inner } => {
-                let rect = self.add_rect_box(inner.start_pos, inner.end_pos);
-                self.state = Selected { rect }.into();
-                self.update_graph(&[]);
-            }
             Action::MovePin {
                 rect,
                 pin,
                 side,
                 delta_pos,
             } => {
-                if let Some(rbox) = self.rect_mut(rect)
+                if let Some(rbox) = self.data.rect_mut(rect)
                     && let Some(pin_ref) = rbox.pins_mut(pin)
                 {
                     pin_ref.side = side;
@@ -1529,29 +1352,14 @@ impl Drawing {
                 self.update_graph(&[]);
             }
             Action::FinalizePinDrag { rect, pin, delta_y } => {
-                if let Some(rbox) = self.rect_mut(rect) {
+                if let Some(rbox) = self.data.rect_mut(rect) {
                     rbox.update_pin_offset(pin, delta_y);
                 }
                 self.state = Selected { rect }.into();
                 self.update_graph(&[]);
             }
-            Action::CommitProposedRoute { mut proposed } => {
-                let mut waypoints = std::mem::take(&mut proposed.waypoints);
-                waypoints.iter_mut().for_each(|(_, wp)| wp.unlock());
-                let mut route = AutoRoute::build(
-                    proposed.start,
-                    proposed.finish,
-                    &self.auto_route,
-                    waypoints,
-                    Store::default(),
-                );
-                route.update_waypoints();
-                let id = self.auto_routes.insert(route);
-                self.state = RouteSelected { id }.into();
-                self.update_graph(&[]);
-            }
             Action::DragEdge { target, delta } => {
-                if let Some(route) = self.auto_routes.get_mut(target.id) {
+                if let Some(route) = self.data.auto_route_mut(target.id) {
                     route.update_waypoint(target.start_waypoint, |wp| wp.pos += delta);
                     route.update_waypoint(target.end_waypoint, |wp| wp.pos += delta);
                     let id = target.id;
@@ -1566,7 +1374,7 @@ impl Drawing {
                 start_waypoint,
                 end_waypoint,
             } => {
-                if let Some(r) = self.auto_routes.get_mut(route) {
+                if let Some(r) = self.data.auto_route_mut(route) {
                     if let Some(wp) = r.waypoint_mut(start_waypoint) {
                         wp.pos = snap_to_grid(wp.pos);
                         wp.unlock();
@@ -1580,13 +1388,13 @@ impl Drawing {
                 self.update_graph(&[]);
             }
             Action::FinalizeRouteLabelEdit { route } => {
-                if let Some(r) = self.auto_routes.get_mut(route) {
+                if let Some(r) = self.data.auto_route_mut(route) {
                     r.update_waypoints();
                 }
                 self.state = State::Idle;
             }
             Action::DragWaypoint { inner, delta } => {
-                if let Some(route) = self.auto_routes.get_mut(inner.route) {
+                if let Some(route) = self.data.auto_route_mut(inner.route) {
                     if let Some(wp) = route.waypoint_mut(inner.waypoint) {
                         wp.pos += delta;
                     }
@@ -1598,7 +1406,7 @@ impl Drawing {
                 }
             }
             Action::FinalizeWaypointDrag { route } => {
-                if let Some(r) = self.auto_routes.get_mut(route) {
+                if let Some(r) = self.data.auto_route_mut(route) {
                     r.iter_waypoints_mut().for_each(|(_, wp)| {
                         wp.pos = snap_to_grid(wp.pos);
                         wp.unlock();
@@ -1612,7 +1420,7 @@ impl Drawing {
                 label_id,
                 linear_distance_delta,
             } => {
-                if let Some(r) = self.auto_routes.get_mut(route) {
+                if let Some(r) = self.data.auto_route_mut(route) {
                     if let Some(label) = r.label_mut(label_id) {
                         label.linear_distance += linear_distance_delta;
                     }
@@ -1626,13 +1434,13 @@ impl Drawing {
                 .into();
             }
             Action::FinalizeTextAnchorDrag { route } => {
-                if let Some(r) = self.auto_routes.get_mut(route) {
+                if let Some(r) = self.data.auto_route_mut(route) {
                     r.update_waypoints();
                 }
                 self.state = RouteSelected { id: route }.into();
             }
             Action::AddPin { rect, side } => {
-                if let Some(ps) = self.rect_mut(rect)
+                if let Some(ps) = self.data.rect_mut(rect)
                     && let Some(next_offset) = ps.next_pin_offset(side)
                 {
                     ps.add_pin("port".into(), side, next_offset);
@@ -1641,7 +1449,7 @@ impl Drawing {
                 self.update_graph(&[]);
             }
             Action::AllocateLabelAndEdit { route, pos } => {
-                self.state = if let Some(r) = self.auto_routes.get_mut(route) {
+                self.state = if let Some(r) = self.data.auto_route_mut(route) {
                     let label_id = r.allocate_label(pos);
                     EditingRouteLabelText {
                         id: route,
@@ -1654,7 +1462,29 @@ impl Drawing {
             }
         }
     }
-    pub fn update_state(&mut self, response: Response) {
+    pub fn update_state(&mut self, mut response: Response) {
+        if self.mode == Mode::Block {
+            if let Some((start, end)) = self.new_block.update(&response) {
+                let rect = self.data.add_rect_box(start, end);
+                self.state = Selected { rect }.into();
+                self.mode = Mode::Select;
+                self.update_graph(&[]);
+            }
+            return;
+        }
+        if self.mode == Mode::Route {
+            if let Some(new_route) = self.route.update(&mut self.data, &mut response) {
+                let id = self.data.add_auto_route(new_route);
+                self.state = RouteSelected { id }.into();
+            }
+            self.update_graph(&[]);
+            return;
+        }
+        if self.mode == Mode::Pin {
+            self.new_pin.update(&mut self.data, &mut response);
+            self.update_graph(&[]);
+            return;
+        }
         let Some(event) = compute_event(&response) else {
             return;
         };
@@ -1671,7 +1501,6 @@ impl Drawing {
             State::PotentialResize(inner) => self.handle_potential_resize(inner, event),
             State::PinLabelHovered(inner) => self.handle_pin_label_hovered(inner, event),
             State::PinLabelGripHovered(inner) => self.handle_pin_label_grip_hovered(inner, event),
-            State::PinHeadHovered(inner) => self.handle_pin_head_hovered(inner, event),
             State::Panning => self.handle_panning(event),
             State::EditingName(inner) => self.handle_editing_name(inner, event),
             State::EditingPinText(inner) => self.handle_editing_pin_text(inner, event),
@@ -1687,19 +1516,16 @@ impl Drawing {
             State::Selected(inner) => self.handle_selected_state(inner, event),
             State::ResizingRect(inner) => self.handle_resizing_rect(inner, event),
             State::MovingRect(inner) => self.handle_moving_rect(inner, event),
-            State::AddingRect(inner) => self.handle_adding_rect(inner, event),
             State::EditingRouteLabelText(inner) => {
                 self.handle_editing_route_label_text(inner, event)
             }
             State::PinDragged(inner) => self.handle_pin_dragged(inner, event),
-            State::InProgressAutoRoute(inner) => self.handle_in_progress_auto_routing(inner, event),
-            State::ProposedAutoRoute(inner) => self.handle_proposed_auto_route(inner, event),
         };
         self.apply_action(action);
     }
     fn build_router(&self) -> RouterNG {
         let mut builder = RouterNGBuilder::default();
-        for (id, rect_box) in self.rect_boxes.iter() {
+        for (id, rect_box) in self.data.rect_boxes() {
             let Some(effective_rect) = self.routing_box(id) else {
                 continue;
             };
@@ -1719,7 +1545,7 @@ impl Drawing {
     }
     fn update_graph(&mut self, ripup: &[RouteId]) {
         let mut router = self.build_router();
-        let mut routes = std::mem::take(&mut self.auto_routes);
+        let mut routes = self.data.take_routes();
         for (id, route) in routes.iter_mut() {
             let Some(anchor_start) = self.anchor(route.start()) else {
                 continue;
@@ -1739,22 +1565,7 @@ impl Drawing {
                 route.rip_and_reroute(anchor_start, anchor_end, &mut router);
             }
         }
-        self.auto_routes = routes;
-        if let State::InProgressAutoRoute(inner) = &self.state
-            && let Some(start_pos) = self.anchor(inner.start)
-        {
-            eprintln!("Auto-routing from {:?} to {:?}", inner.start, inner.head);
-            let head_pos = snap_to_grid(inner.head);
-            self.auto_route = router.waypoint_path(start_pos, &inner.waypoints, head_pos);
-        }
-        if let State::ProposedAutoRoute(inner) = &self.state
-            && let Some(start_pos) = self.anchor(inner.start)
-            && let Some(end_pos) = self.anchor(inner.finish)
-        {
-            let start_pos = snap_to_grid(start_pos);
-            let end = snap_to_grid(end_pos);
-            self.auto_route = router.waypoint_path(start_pos, &inner.waypoints, end);
-        }
+        self.data.set_routes(routes);
         self.debug_marks = router.debug_marks();
     }
     pub fn demo() -> Self {
@@ -1766,8 +1577,9 @@ pub fn demo_drawing() -> Drawing {
     let mut drawing = Drawing::default();
     let origin_1 = pos2(330.0, 300.0);
     let size = vec2(200.0, 200.0);
-    let box1_id = drawing.add_rect_box(origin_1, origin_1 + size);
+    let box1_id = drawing.data.add_rect_box(origin_1, origin_1 + size);
     let box1_pin1 = drawing
+        .data
         .rect_mut(box1_id)
         .and_then(|ps| {
             ps.add_pin(
@@ -1782,6 +1594,7 @@ pub fn demo_drawing() -> Drawing {
         pin: box1_pin1,
     };
     let box1_pin2 = drawing
+        .data
         .rect_mut(box1_id)
         .and_then(|ps| {
             ps.add_pin(
@@ -1796,8 +1609,9 @@ pub fn demo_drawing() -> Drawing {
         pin: box1_pin2,
     };
     let origin_2 = pos2(0.0, 0.0);
-    let box2_id = drawing.add_rect_box(origin_2, origin_2 + size);
+    let box2_id = drawing.data.add_rect_box(origin_2, origin_2 + size);
     let box2_port1 = drawing
+        .data
         .rect_mut(box2_id)
         .and_then(|ps| ps.add_pin("o.1.read_logic".to_string(), PinSide::East, GRID_SIZE * 1.0))
         .expect("add_pin");
@@ -1806,6 +1620,7 @@ pub fn demo_drawing() -> Drawing {
         pin: box2_port1,
     };
     let box2_pin2 = drawing
+        .data
         .rect_mut(box2_id)
         .and_then(|ps| ps.add_pin("o.0.read_logic".to_string(), PinSide::East, GRID_SIZE * 2.0))
         .expect("add_pin");
@@ -1848,7 +1663,7 @@ pub fn demo_drawing() -> Drawing {
         Store::default(),
     );
     route.update_waypoints();
-    drawing.auto_routes.insert(route);
+    drawing.data.add_auto_route(route);
     let mut router = drawing.build_router();
     let start = drawing.anchor(box1_anchor2).unwrap();
     let finish = drawing.anchor(box2_anchor2).unwrap();
@@ -1861,13 +1676,13 @@ pub fn demo_drawing() -> Drawing {
         Store::default(),
     );
     route.update_waypoints();
-    drawing.auto_routes.insert(route);
-    drawing.add_port_box(
+    drawing.data.add_auto_route(route);
+    drawing.data.add_port_box(
         "clk".to_string(),
         PinSide::East,
         Rect::from_center_size(pos2(160.0, 315.0), vec2(4.0 * GRID_SIZE, PORT_HEIGHT)),
     );
-    drawing.add_port_box(
+    drawing.data.add_port_box(
         "out".to_string(),
         PinSide::West,
         Rect::from_center_size(pos2(580.0, 15.0), vec2(4.0 * GRID_SIZE, PORT_HEIGHT)),

@@ -128,7 +128,9 @@ impl BaseShape for Port {
         };
 
         match mode {
-            RenderMode::Normal | RenderMode::TitleDragged { .. } => {
+            RenderMode::Normal
+            | RenderMode::TitleDragged { .. }
+            | RenderMode::PinAddHovered { .. } => {
                 draw_normal(bbox, &self.pin.text, side, ui);
             }
             RenderMode::Selected => {
