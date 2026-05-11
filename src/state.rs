@@ -42,10 +42,6 @@ pub enum State {
     PotentialResize(PotentialResize),
     ResizingRect(ResizingRect),
     EditingName(EditingName),
-    PinDragged(PinDragged),
-    PinLabelHovered(PinLabelHovered),
-    PinLabelGripHovered(PinLabelGripHovered),
-    EditingPinText(EditingPinText),
     RouteHovered(RouteHovered),
     RouteSelected(RouteSelected),
     RouteEdgeHovered(RouteEdgeHovered),
@@ -120,19 +116,6 @@ pub struct RouteEdgeDragged {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PinDragged {
-    pub rect: RectId,
-    pub pin: PinId,
-    pub delta_pos: Vec2,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PinLabelHovered {
-    pub rect: RectId,
-    pub pin: PinId,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RouteControlPointHovered {
     pub id: RouteId,
     pub edge: EdgeId,
@@ -155,18 +138,6 @@ pub struct RouteLabelHovered {
 pub struct EditingRouteLabelText {
     pub id: RouteId,
     pub label_id: WireLabelId,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PinLabelGripHovered {
-    pub rect: RectId,
-    pub pin: PinId,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct EditingPinText {
-    pub rect: RectId,
-    pub pin: PinId,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -247,8 +218,6 @@ impl State {
             }
             State::Selected(Selected { rect })
             | State::PotentialResize(PotentialResize { rect, .. })
-            | State::PinLabelHovered(PinLabelHovered { rect, .. })
-            | State::PinLabelGripHovered(PinLabelGripHovered { rect, .. })
             | State::TitleControlHovered(TitleControlHovered { rect })
                 if id == *rect =>
             {
@@ -266,21 +235,10 @@ impl State {
                 mode: *mode,
                 delta: *delta_pos,
             },
-            State::PinDragged(PinDragged {
-                rect,
-                pin,
-                delta_pos,
-            }) if id == *rect => RenderMode::PinDragged {
-                pin: *pin,
-                delta: *delta_pos,
-            },
             State::TitleControlDragged(TitleControlDragged { rect, delta_pos }) if id == *rect => {
                 RenderMode::TitleDragged { delta: *delta_pos }
             }
             State::EditingName(EditingName { rect }) if id == *rect => RenderMode::EditingName,
-            State::EditingPinText(EditingPinText { rect, pin }) if id == *rect => {
-                RenderMode::EditingPinText { pin: *pin }
-            }
             _ => RenderMode::Normal,
         }
     }
@@ -295,13 +253,10 @@ impl State {
             State::TitleHovered { .. } | State::TitleControlHovered { .. } => {
                 CursorIcon::PointingHand
             }
-            State::PinLabelHovered { .. }
-            | State::RouteLabelHovered { .. }
+            State::RouteLabelHovered { .. }
             | State::AddText
             | State::AddTextHoveredRoute { .. } => CursorIcon::Text,
-            State::PinLabelGripHovered { .. } => CursorIcon::Grab,
             //            State::PinHeadHovered { .. } => CursorIcon::Crosshair,
-            State::PinDragged { .. } => CursorIcon::Grabbing,
             State::RouteEdgeHovered(inner) => match inner.direction {
                 RouteDirection::Horizontal => CursorIcon::ResizeVertical,
                 RouteDirection::Vertical => CursorIcon::ResizeHorizontal,

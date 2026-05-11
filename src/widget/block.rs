@@ -10,8 +10,8 @@ use crate::{
     widget::{
         pin::{Pin, PinSide},
         render::{
-            FocusResult, GripState, block_title_position, draw_box_outline, draw_control_frame,
-            draw_pin, get_control_pin_bbox, pin_text_location, render_pins_with_box,
+            FocusResult, GripState, block_title_position, draw_box_outline, draw_pin,
+            get_control_pin_bbox, pin_text_location, render_pins_with_box,
         },
         shape::BaseShape,
     },
@@ -122,37 +122,8 @@ impl Block {
         pin_ref.offset = pin_offset;
     }
 
-    pub fn next_pin_offset_inner(&self, side: PinSide) -> Option<f32> {
-        let max_pos = (self.inner.height() / GRID_SIZE) as i32 - 1;
-        if max_pos <= 0 {
-            return None;
-        }
-        (0_u32..max_pos as u32).find_map(|ndx| {
-            let offset = ndx as f32 * GRID_SIZE;
-            if self
-                .pins
-                .values()
-                .any(|l| l.side == side && (l.offset - offset).abs() < GRID_SIZE * 0.6)
-            {
-                None
-            } else {
-                Some(offset)
-            }
-        })
-    }
-
     pub fn add_pin_inner(&mut self, text: String, side: PinSide, offset: f32) -> PinId {
         self.pins.insert(Pin { text, side, offset })
-    }
-
-    pub fn add_pin_button_east_inner(&self) -> Option<Pos2> {
-        let offset = self.next_pin_offset_inner(PinSide::East)?;
-        Some(self.inner.right_top() + vec2(GRID_SIZE, GRID_SIZE + offset))
-    }
-
-    pub fn add_pin_button_west_inner(&self) -> Option<Pos2> {
-        let offset = self.next_pin_offset_inner(PinSide::West)?;
-        Some(self.inner.left_top() + vec2(-GRID_SIZE, GRID_SIZE + offset))
     }
     pub fn title_bbox(&self) -> Rect {
         let title_width = (self.title.name.len() as f32 * TITLE_TEXT_SIZE * 0.6 + 10.0).max(20.0);
@@ -209,15 +180,6 @@ impl BaseShape for Block {
             ),
             PinSide::West => pos2(rect.left() - GRID_SIZE, rect.top() + GRID_SIZE + pin.offset),
         })
-    }
-    fn add_pin_button_east(&self) -> Option<Pos2> {
-        self.add_pin_button_east_inner()
-    }
-    fn add_pin_button_west(&self) -> Option<Pos2> {
-        self.add_pin_button_west_inner()
-    }
-    fn next_pin_offset(&self, side: PinSide) -> Option<f32> {
-        self.next_pin_offset_inner(side)
     }
     fn add_pin(&mut self, text: String, side: PinSide, offset: f32) -> Option<PinId> {
         Some(self.add_pin_inner(text, side, offset))
@@ -279,28 +241,10 @@ impl BaseShape for Block {
             RenderMode::Selected => {
                 draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
-                draw_control_frame(
-                    bbox,
-                    None,
-                    NORMAL_RESIZE_MODES,
-                    self.add_pin_button_east_inner(),
-                    self.add_pin_button_west_inner(),
-                    Some(&self.title),
-                    ui,
-                );
             }
             RenderMode::PinHeadHovered { pin } => {
                 draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
-                draw_control_frame(
-                    bbox,
-                    None,
-                    NORMAL_RESIZE_MODES,
-                    self.add_pin_button_east_inner(),
-                    self.add_pin_button_west_inner(),
-                    Some(&self.title),
-                    ui,
-                );
                 if let Some(p) = self.pins.get(pin) {
                     let theme = get_theme(ui);
                     let cb = get_control_pin_bbox(bbox, p);
@@ -368,15 +312,6 @@ impl BaseShape for Block {
                     GripState::Drawn,
                     ui,
                 );
-                draw_control_frame(
-                    bbox,
-                    None,
-                    NORMAL_RESIZE_MODES,
-                    self.add_pin_button_east_inner(),
-                    self.add_pin_button_west_inner(),
-                    Some(&self.title),
-                    ui,
-                );
                 ui.painter().line_segment(
                     [bbox.center_top(), bbox.center_bottom()],
                     (2.0, theme.pin_drag_indicator),
@@ -417,15 +352,6 @@ impl BaseShape for Block {
             RenderMode::EditingName => {
                 draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
-                draw_control_frame(
-                    bbox,
-                    None,
-                    NORMAL_RESIZE_MODES,
-                    self.add_pin_button_east_inner(),
-                    self.add_pin_button_west_inner(),
-                    Some(&self.title),
-                    ui,
-                );
                 let rect_name_width =
                     (self.title.name.len() as f32 * TITLE_TEXT_SIZE * 0.6 + 10.0).max(20.0);
                 let (title_pos, title_align) = block_title_position(bbox, &self.title);
@@ -446,15 +372,6 @@ impl BaseShape for Block {
             RenderMode::EditingPinText { pin: pin_id } => {
                 draw_block_frame(bbox, &self.title, ui);
                 render_pins_with_box(self.pins.values(), bbox, GripState::Drawn, ui);
-                draw_control_frame(
-                    bbox,
-                    None,
-                    NORMAL_RESIZE_MODES,
-                    self.add_pin_button_east_inner(),
-                    self.add_pin_button_west_inner(),
-                    Some(&self.title),
-                    ui,
-                );
                 let Some(pin_ref) = self.pins.get_mut(pin_id) else {
                     return FocusResult::KeptFocus;
                 };

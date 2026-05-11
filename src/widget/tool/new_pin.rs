@@ -1,12 +1,6 @@
 use egui::{Color32, Response, Ui};
 
-use crate::{
-    store::RectId,
-    widget::{
-        data::{AddPinLocation, Data},
-        pin::PinSide,
-    },
-};
+use crate::widget::data::{AddPinLocation, Data};
 
 #[derive(Default)]
 enum PinState {
@@ -34,10 +28,11 @@ impl NewPin {
                     && let Some(pin_loc) = data.new_pin_location(pos)
                 {
                     response.mark_changed();
+                    eprintln!("Hovered at {:?}", pin_loc);
                     self.state = PinState::Hovered(pin_loc);
                 }
             }
-            PinState::Hovered(pin_loc) => {
+            PinState::Hovered(_) => {
                 if response.clicked()
                     && let Some(pos) = response.interact_pointer_pos()
                     && let Some(new_pin_loc) = data.new_pin_location(pos)
@@ -56,13 +51,7 @@ impl NewPin {
         }
     }
     pub(crate) fn render(&self, ui: &mut Ui) {
-        if let PinState::Hovered(AddPinLocation {
-            rect,
-            side,
-            offset,
-            pos,
-        }) = &self.state
-        {
+        if let PinState::Hovered(AddPinLocation { pos, .. }) = &self.state {
             ui.painter().circle_filled(*pos, 5.0, Color32::GREEN);
         }
     }

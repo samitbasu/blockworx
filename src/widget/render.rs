@@ -117,6 +117,9 @@ pub fn draw_pin(bbox: Rect, pin: &Pin, grip_state: GripState, offset: f32, ui: &
         egui::FontId::monospace(PORT_TEXT_SIZE),
         theme.pin_text,
     );
+    let bbox = estimate_bbox_for_pin_text(bbox, pin).expand(3.0);
+    ui.painter()
+        .rect_stroke(bbox, 1.0, (0.5, Color32::DARK_BLUE), StrokeKind::Middle);
     let hamburger_rect = get_hamburger_rect(bbox.translate(vec2(0.0, offset)), pin);
     match grip_state {
         GripState::Hidden => {}

@@ -45,6 +45,11 @@ pub trait BaseShape {
         let _ = id;
         None
     }
+    fn with_pin_mut(&mut self, id: PinId, mut f: impl FnMut(&mut Pin)) {
+        if let Some(pin) = self.pins_mut(id) {
+            f(pin);
+        }
+    }
     fn with_pins(&self, f: impl FnMut(PinId, &Pin)) {
         let _ = f;
     }
@@ -70,16 +75,6 @@ pub trait BaseShape {
     }
     fn new_pin_location(&self, pos: Pos2) -> Option<(PinSide, f32)> {
         let _ = pos;
-        None
-    }
-    // Pin management — default no-ops, overridden by shapes that support it.
-    fn add_pin_button_east(&self) -> Option<Pos2> {
-        None
-    }
-    fn add_pin_button_west(&self) -> Option<Pos2> {
-        None
-    }
-    fn next_pin_offset(&self, _side: PinSide) -> Option<f32> {
         None
     }
     fn add_pin(&mut self, _text: String, _side: PinSide, _offset: f32) -> Option<PinId> {

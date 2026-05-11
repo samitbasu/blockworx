@@ -24,7 +24,12 @@ use crate::{
             render_path_with_chamfered_corners,
         },
         shape::{BaseShape, Shape},
-        tool::{new_block::NewBlock, new_pin::NewPin, route::Route},
+        tool::{
+            new_block::NewBlock,
+            new_pin::NewPin,
+            route::Route,
+            select::{SubtoolState, drag_pin::DragPin, rename_pin::RenamePin},
+        },
         waypoint::Waypoint,
     },
 };
@@ -56,6 +61,8 @@ pub struct Drawing {
     new_block: NewBlock,
     route: Route,
     new_pin: NewPin,
+    drag_pin: Option<DragPin>,
+    rename_pin: Option<RenamePin>,
 }
 
 enum RouteRenderMode {
@@ -116,12 +123,6 @@ enum Action {
         inner: ResizingRect,
         next: State,
     },
-    MovePin {
-        rect: RectId,
-        pin: PinId,
-        side: PinSide,
-        delta_pos: Vec2,
-    },
     AllocateLabelAndEdit {
         route: RouteId,
         pos: Pos2,
@@ -133,15 +134,6 @@ enum Action {
     AddCornerWaypointAndDrag {
         route: RouteId,
         pos: Pos2,
-    },
-    FinalizePinDrag {
-        rect: RectId,
-        pin: PinId,
-        delta_y: f32,
-    },
-    AddPin {
-        rect: RectId,
-        side: PinSide,
     },
     StartEdgeDrag {
         route: RouteId,
@@ -202,7 +194,7 @@ impl Drawing {
     }
     pub fn anchor(&self, anchor: LineAnchor) -> Option<Pos2> {
         let effective_rect = self.routing_box(anchor.rect)?;
-        if let State::PinDragged(inner) = &self.state
+        /*         if let State::PinDragged(inner) = &self.state
             && anchor.rect == inner.rect
             && anchor.pin == inner.pin
         {
@@ -218,10 +210,11 @@ impl Drawing {
             let anchor_y = round_to_grid(current_pos.y);
             Some(snap_to_grid(pos2(anchor_x, anchor_y)))
         } else {
-            self.data
-                .rect(anchor.rect)
-                .and_then(|rect| rect.anchor_point_with_rect(effective_rect, anchor.pin))
-        }
+        */
+        self.data
+            .rect(anchor.rect)
+            .and_then(|rect| rect.anchor_point_with_rect(effective_rect, anchor.pin))
+        //        }
     }
     pub fn with_anchors(&self, mut f: impl FnMut(LineAnchor)) {
         self.data.rect_boxes().for_each(|(rect_id, rect)| {
@@ -398,6 +391,12 @@ impl Drawing {
         self.new_block.render(ui);
         self.route.render(&self.data, ui);
         self.new_pin.render(ui);
+        if let Some(pin_edit) = self.drag_pin.as_mut() {
+            pin_edit.render(&mut self.data, ui);
+        }
+        if let Some(rename_pin) = self.rename_pin.as_mut() {
+            rename_pin.render(&mut self.data, ui);
+        }
         if let State::RouteHovered(target) = &self.state
             && let Some(route) = self.data.auto_route(target.id)
         {
@@ -672,10 +671,25 @@ impl Drawing {
             Action::TransitionTo(State::Idle)
         }
     }
-    fn handle_selected_state(&self, inner: Selected, event: Event) -> Action {
+    fn handle_selected_state(&mut self, inner: Selected, event: Event) -> Action {
         let rect = inner.rect;
         match event {
             Event::DoubleClicked { pos } => {
+                if let Some(rect_box) = self.data.rect(rect) {
+                    if let Some(state) = rect_box.find_pin(|pid, pin| {
+                        let pin_bbox =
+                            estimate_bbox_for_pin_text(rect_box.gui_rect(), pin).expand(3.0);
+                        if pin_bbox.contains(pos) {
+                            Some(LineAnchor { rect, pin: pid }.into())
+                        } else {
+                            None
+                        }
+                    }) {
+                        self.rename_pin = Some(state);
+                        return Action::TransitionTo(Selected { rect }.into());
+                    }
+                }
+
                 if let Some(rect_box) = self.data.rect(rect)
                     && let Shape::Block(block) = rect_box
                     && block.title_bbox().contains(pos)
@@ -684,44 +698,30 @@ impl Drawing {
                 }
             }
             Event::Clicked { pos } => {
-                for &side in &[PinSide::East, PinSide::West] {
-                    if let Some(bbox) = self.data.rect(rect) {
-                        let btn = if side == PinSide::East {
-                            bbox.add_pin_button_east()
-                        } else {
-                            bbox.add_pin_button_west()
-                        };
-                        if let Some(pin_pos) = btn
-                            && pos.distance(pin_pos) <= PORT_RADIUS
-                            && bbox.next_pin_offset(side).is_some()
-                        {
-                            return Action::AddPin { rect, side };
-                        }
-                    }
-                }
                 if let Some(id) = self.rect_at(pos) {
                     return Action::TransitionTo(Selected { rect: id }.into());
                 }
                 return Action::TransitionTo(State::idle());
             }
             Event::DragStarted { pos } => {
+                eprintln!("Drag started at {pos}");
                 if let Some(hbox) = self.data.rect(rect)
-                    && let Some(lid) = hbox.find_pin(|lid, _pin| {
-                        if hbox.pin_head_pos(lid)?.distance(pos) <= PORT_RADIUS {
+                    && let Some(lid) = hbox.find_pin(|lid, pin| {
+                        let pin_bbox = estimate_bbox_for_pin_text(hbox.gui_rect(), pin).expand(3.0);
+                        eprintln!(
+                            "Checking pin {} with bbox {} against pos {pos}",
+                            lid, pin_bbox
+                        );
+                        if pin_bbox.contains(pos) {
                             Some(lid)
                         } else {
                             None
                         }
                     })
                 {
-                    return Action::TransitionTo(
-                        PinDragged {
-                            rect,
-                            pin: lid,
-                            delta_pos: Vec2::ZERO,
-                        }
-                        .into(),
-                    );
+                    eprintln!("Starting to drag pin {}", lid);
+                    self.drag_pin = Some(LineAnchor { rect, pin: lid }.into());
+                    return Action::TransitionTo(Selected { rect }.into());
                 }
                 return self.drag_start_on_canvas(pos);
             }
@@ -743,26 +743,6 @@ impl Drawing {
                         && block.title_bbox().contains(hover_pos)
                     {
                         return Action::TransitionTo(TitleHovered { rect }.into());
-                    }
-                    if let Some(state) = bbox.find_pin(|pid, pin| {
-                        let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin);
-                        if pin_bbox.contains(hover_pos) {
-                            eprintln!("Hovering over label {}", pin.text);
-                            return Some(PinLabelHovered { rect, pin: pid }.into());
-                        }
-                        let hamburger_rect =
-                            get_hamburger_rect(bbox.gui_rect(), pin).expand(GRIP_SHIM);
-                        if hamburger_rect.contains(hover_pos) {
-                            eprintln!("Hovering over grip for label {}", pin.text);
-                            return Some(PinLabelGripHovered { rect, pin: pid }.into());
-                        }
-                        let pin_location = get_control_pin_bbox(bbox.gui_rect(), pin);
-                        if pin_location.contains(hover_pos) {
-                            eprintln!("Hovering over pin for label {}", pin.text);
-                        }
-                        None
-                    }) {
-                        return Action::TransitionTo(state);
                     }
                 }
             }
@@ -820,26 +800,26 @@ impl Drawing {
         Action::TransitionTo(TitleControlHovered { rect }.into())
     }
 
-    fn handle_pin_label_hovered(&self, inner: PinLabelHovered, event: Event) -> Action {
-        let PinLabelHovered { rect, pin } = inner;
-        match event {
-            Event::HoverAt(hover_pos) => {
-                if let Some(bbox) = self.data.rect(rect)
-                    && let Some(pin_ref) = bbox.pin(pin)
-                {
-                    let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin_ref);
-                    if !pin_bbox.contains(hover_pos) {
-                        return Action::TransitionTo(Selected { rect }.into());
-                    }
-                }
-            }
-            Event::DoubleClicked { .. } => {
-                return Action::TransitionTo(EditingPinText { rect, pin }.into());
-            }
-            _ => {}
-        }
-        Action::TransitionTo(PinLabelHovered { rect, pin }.into())
-    }
+    // fn handle_pin_label_hovered(&self, inner: PinLabelHovered, event: Event) -> Action {
+    //     let PinLabelHovered { rect, pin } = inner;
+    //     match event {
+    //         Event::HoverAt(hover_pos) => {
+    //             if let Some(bbox) = self.data.rect(rect)
+    //                 && let Some(pin_ref) = bbox.pin(pin)
+    //             {
+    //                 let pin_bbox = estimate_bbox_for_pin_text(bbox.gui_rect(), pin_ref);
+    //                 if !pin_bbox.contains(hover_pos) {
+    //                     return Action::TransitionTo(Selected { rect }.into());
+    //                 }
+    //             }
+    //         }
+    //         Event::DoubleClicked { .. } => {
+    //             return Action::TransitionTo(EditingPinText { rect, pin }.into());
+    //         }
+    //         _ => {}
+    //     }
+    //     Action::TransitionTo(PinLabelHovered { rect, pin }.into())
+    // }
     fn handle_route_label_hovered(&self, route: RouteLabelHovered, event: Event) -> Action {
         if let Event::HoverAt(hover_pos) = event
             && let Some(auto_route) = self.data.auto_route(route.id)
@@ -853,35 +833,35 @@ impl Drawing {
         }
         Action::TransitionTo(route.into())
     }
-    fn handle_pin_label_grip_hovered(&self, inner: PinLabelGripHovered, event: Event) -> Action {
-        let PinLabelGripHovered { rect, pin } = inner;
-        match event {
-            Event::DragStarted { .. } | Event::Dragging { .. } => {
-                eprintln!("Starting to drag port label grip");
-                return Action::TransitionTo(
-                    PinDragged {
-                        rect,
-                        pin,
-                        delta_pos: Vec2::ZERO,
-                    }
-                    .into(),
-                );
-            }
-            Event::HoverAt(hover_pos) => {
-                if let Some(bbox) = self.data.rect(rect)
-                    && let Some(pin_ref) = bbox.pin(pin)
-                {
-                    let hamburger_rect =
-                        get_hamburger_rect(bbox.gui_rect(), pin_ref).expand(GRIP_SHIM);
-                    if !hamburger_rect.contains(hover_pos) {
-                        return Action::TransitionTo(Selected { rect }.into());
-                    }
-                }
-            }
-            _ => {}
-        }
-        Action::TransitionTo(PinLabelGripHovered { rect, pin }.into())
-    }
+    // fn handle_pin_label_grip_hovered(&self, inner: PinLabelGripHovered, event: Event) -> Action {
+    //     let PinLabelGripHovered { rect, pin } = inner;
+    //     match event {
+    //         Event::DragStarted { .. } | Event::Dragging { .. } => {
+    //             eprintln!("Starting to drag port label grip");
+    //             return Action::TransitionTo(
+    //                 PinDragged {
+    //                     rect,
+    //                     pin,
+    //                     delta_pos: Vec2::ZERO,
+    //                 }
+    //                 .into(),
+    //             );
+    //         }
+    //         Event::HoverAt(hover_pos) => {
+    //             if let Some(bbox) = self.data.rect(rect)
+    //                 && let Some(pin_ref) = bbox.pin(pin)
+    //             {
+    //                 let hamburger_rect =
+    //                     get_hamburger_rect(bbox.gui_rect(), pin_ref).expand(GRIP_SHIM);
+    //                 if !hamburger_rect.contains(hover_pos) {
+    //                     return Action::TransitionTo(Selected { rect }.into());
+    //                 }
+    //             }
+    //         }
+    //         _ => {}
+    //     }
+    //     Action::TransitionTo(PinLabelGripHovered { rect, pin }.into())
+    // }
     fn handle_route_corner_hovered(&self, inner: RouteCornerHovered, event: Event) -> Action {
         match event {
             Event::DragStarted { pos } | Event::Dragging { pos, .. } => {
@@ -1152,13 +1132,6 @@ impl Drawing {
         }
         Action::TransitionTo(EditingName { rect }.into())
     }
-    fn handle_editing_pin_text(&self, inner: EditingPinText, event: Event) -> Action {
-        let EditingPinText { rect, pin } = inner;
-        if matches!(event, Event::Clicked { .. }) {
-            return Action::TransitionTo(Selected { rect }.into());
-        }
-        Action::TransitionTo(EditingPinText { rect, pin }.into())
-    }
     fn handle_editing_route_label_text(
         &self,
         inner: EditingRouteLabelText,
@@ -1189,39 +1162,39 @@ impl Drawing {
             },
         }
     }
-    fn handle_pin_dragged(&self, inner: PinDragged, event: Event) -> Action {
-        let PinDragged {
-            rect,
-            pin,
-            delta_pos,
-        } = inner;
-        match event {
-            Event::Dragging { pos, delta } => {
-                let side = self
-                    .data
-                    .rect(rect)
-                    .map(|rbox| {
-                        if pos.x < rbox.gui_rect().center().x {
-                            PinSide::West
-                        } else {
-                            PinSide::East
-                        }
-                    })
-                    .unwrap_or(PinSide::East);
-                Action::MovePin {
-                    rect,
-                    pin,
-                    side,
-                    delta_pos: delta_pos + delta,
-                }
-            }
-            _ => Action::FinalizePinDrag {
-                rect,
-                pin,
-                delta_y: delta_pos.y,
-            },
-        }
-    }
+    // fn handle_pin_dragged(&self, inner: PinDragged, event: Event) -> Action {
+    //     let PinDragged {
+    //         rect,
+    //         pin,
+    //         delta_pos,
+    //     } = inner;
+    //     match event {
+    //         Event::Dragging { pos, delta } => {
+    //             let side = self
+    //                 .data
+    //                 .rect(rect)
+    //                 .map(|rbox| {
+    //                     if pos.x < rbox.gui_rect().center().x {
+    //                         PinSide::West
+    //                     } else {
+    //                         PinSide::East
+    //                     }
+    //                 })
+    //                 .unwrap_or(PinSide::East);
+    //             Action::MovePin {
+    //                 rect,
+    //                 pin,
+    //                 side,
+    //                 delta_pos: delta_pos + delta,
+    //             }
+    //         }
+    //         _ => Action::FinalizePinDrag {
+    //             rect,
+    //             pin,
+    //             delta_y: delta_pos.y,
+    //         },
+    //     }
+    // }
     fn apply_action(&mut self, action: Action) {
         match action {
             Action::TransitionTo(state) => {
@@ -1332,32 +1305,6 @@ impl Drawing {
                     self.state = State::Idle;
                 }
             }
-            Action::MovePin {
-                rect,
-                pin,
-                side,
-                delta_pos,
-            } => {
-                if let Some(rbox) = self.data.rect_mut(rect)
-                    && let Some(pin_ref) = rbox.pins_mut(pin)
-                {
-                    pin_ref.side = side;
-                }
-                self.state = PinDragged {
-                    rect,
-                    pin,
-                    delta_pos,
-                }
-                .into();
-                self.update_graph(&[]);
-            }
-            Action::FinalizePinDrag { rect, pin, delta_y } => {
-                if let Some(rbox) = self.data.rect_mut(rect) {
-                    rbox.update_pin_offset(pin, delta_y);
-                }
-                self.state = Selected { rect }.into();
-                self.update_graph(&[]);
-            }
             Action::DragEdge { target, delta } => {
                 if let Some(route) = self.data.auto_route_mut(target.id) {
                     route.update_waypoint(target.start_waypoint, |wp| wp.pos += delta);
@@ -1439,15 +1386,6 @@ impl Drawing {
                 }
                 self.state = RouteSelected { id: route }.into();
             }
-            Action::AddPin { rect, side } => {
-                if let Some(ps) = self.data.rect_mut(rect)
-                    && let Some(next_offset) = ps.next_pin_offset(side)
-                {
-                    ps.add_pin("port".into(), side, next_offset);
-                }
-                self.state = Selected { rect }.into();
-                self.update_graph(&[]);
-            }
             Action::AllocateLabelAndEdit { route, pos } => {
                 self.state = if let Some(r) = self.data.auto_route_mut(route) {
                     let label_id = r.allocate_label(pos);
@@ -1485,6 +1423,24 @@ impl Drawing {
             self.update_graph(&[]);
             return;
         }
+        if let Some(edit) = self.drag_pin.as_mut() {
+            eprintln!("Drag pin active");
+            let subtool_state = edit.update(&mut self.data, &mut response);
+            if subtool_state == SubtoolState::Active {
+                return;
+            }
+            eprintln!("Drag pin inactive");
+            self.drag_pin = None;
+            self.update_graph(&[]);
+        }
+        if let Some(rename) = self.rename_pin.as_mut() {
+            let subtool_state = rename.update(&mut response);
+            if subtool_state == SubtoolState::Active {
+                return;
+            }
+            self.rename_pin = None;
+            self.update_graph(&[]);
+        }
         let Some(event) = compute_event(&response) else {
             return;
         };
@@ -1499,11 +1455,10 @@ impl Drawing {
             State::TitleControlHovered(inner) => self.handle_title_control_hovered(inner, event),
             State::TitleHovered(inner) => self.handle_title_hovered(inner, event),
             State::PotentialResize(inner) => self.handle_potential_resize(inner, event),
-            State::PinLabelHovered(inner) => self.handle_pin_label_hovered(inner, event),
-            State::PinLabelGripHovered(inner) => self.handle_pin_label_grip_hovered(inner, event),
+            //            State::PinLabelHovered(inner) => self.handle_pin_label_hovered(inner, event),
+            //            State::PinLabelGripHovered(inner) => self.handle_pin_label_grip_hovered(inner, event),
             State::Panning => self.handle_panning(event),
             State::EditingName(inner) => self.handle_editing_name(inner, event),
-            State::EditingPinText(inner) => self.handle_editing_pin_text(inner, event),
             State::AddTextHoveredRoute(inner) => self.handle_add_text_hovered_route(inner, event),
             State::RouteEdgeHovered(inner) => self.handle_route_edge_hovered(inner, event),
             State::RouteCornerHovered(inner) => self.handle_route_corner_hovered(inner, event),
@@ -1518,8 +1473,7 @@ impl Drawing {
             State::MovingRect(inner) => self.handle_moving_rect(inner, event),
             State::EditingRouteLabelText(inner) => {
                 self.handle_editing_route_label_text(inner, event)
-            }
-            State::PinDragged(inner) => self.handle_pin_dragged(inner, event),
+            } //            State::PinDragged(inner) => self.handle_pin_dragged(inner, event),
         };
         self.apply_action(action);
     }

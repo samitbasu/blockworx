@@ -113,7 +113,6 @@ impl Route {
             }
             RouteState::ProposedAutoRoute(inner) => {
                 if response.clicked()
-                    && let Some(pos) = response.interact_pointer_pos()
                     && let Some(start_pos) = data.anchor(inner.start)
                     && let Some(end_pos) = data.anchor(inner.finish)
                     && start_pos != end_pos

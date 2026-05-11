@@ -22,6 +22,7 @@ pub struct Data {
     router: Option<RouterNG>,
 }
 
+#[derive(Debug)]
 pub struct AddPinLocation {
     pub rect: RectId,
     pub side: PinSide,
