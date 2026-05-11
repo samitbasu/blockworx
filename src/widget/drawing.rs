@@ -4,6 +4,7 @@ use egui::{
 };
 
 use crate::{
+    canvas::interaction::Event,
     grid::{
         GRID_SIZE, MOVE_HOVER_DISTANCE, PORT_HEIGHT, PORT_RADIUS, ROUTE_TEXT_SIZE, SHIM, grid_rect,
         round_to_grid, snap_to_grid,
@@ -69,47 +70,6 @@ enum RouteRenderMode {
     Normal,
     Highlighted,
     Selected,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum Event {
-    HoverAt(Pos2),
-    DragStarted { pos: Pos2 },
-    Dragging { pos: Pos2, delta: Vec2 },
-    DragStopped,
-    Clicked { pos: Pos2 },
-    DoubleClicked { pos: Pos2 },
-}
-
-fn compute_event(response: &Response) -> Option<Event> {
-    if response.double_clicked()
-        && let Some(pos) = response.interact_pointer_pos()
-    {
-        Some(Event::DoubleClicked { pos })
-    } else if response.clicked()
-        && let Some(pos) = response.interact_pointer_pos()
-    {
-        Some(Event::Clicked { pos })
-    } else if response.drag_started()
-        && let Some(pos) = response.interact_pointer_pos()
-    {
-        Some(Event::DragStarted { pos })
-    } else if response.dragged()
-        && let Some(pos) = response.interact_pointer_pos()
-    {
-        Some(Event::Dragging {
-            pos,
-            delta: response.drag_delta(),
-        })
-    } else if response.drag_stopped() {
-        Some(Event::DragStopped)
-    } else if response.hovered()
-        && let Some(pos) = response.hover_pos()
-    {
-        Some(Event::HoverAt(pos))
-    } else {
-        None
-    }
 }
 
 enum Action {
@@ -1441,7 +1401,7 @@ impl Drawing {
             self.rename_pin = None;
             self.update_graph(&[]);
         }
-        let Some(event) = compute_event(&response) else {
+        let Some(event) = crate::canvas::interaction::compute_event(&response, |p| p, 1.0) else {
             return;
         };
         let old_state = std::mem::take(&mut self.state);

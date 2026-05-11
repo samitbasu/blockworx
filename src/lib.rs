@@ -1,4 +1,5 @@
 pub mod app;
+pub mod canvas;
 pub mod db;
 pub mod document;
 pub mod grid;
