@@ -1,6 +1,7 @@
 use egui::{Color32, Pos2, Rect, Stroke, TextEdit, Ui, Vec2, pos2, vec2};
 
 use crate::{
+    canvas::painter::Painter,
     grid::{
         GRID_SIZE, PORT_RADIUS, PORT_TEXT_SIZE, TITLE_TEXT_SIZE, grid_rect, round_to_grid, snap,
     },
@@ -13,7 +14,7 @@ use crate::{
             FocusResult, GripState, block_title_position, draw_box_outline, draw_pin,
             get_control_pin_bbox, pin_text_location, render_pins_with_box,
         },
-        shape::BaseShape,
+        shape::{BaseShape, NewPinLocation},
     },
 };
 
@@ -212,9 +213,36 @@ impl BaseShape for Block {
         }
         None
     }
+    fn new_pin_locations(&self) -> Vec<NewPinLocation> {
+        let mut offset = 0.0;
+        let mut locations = Vec::new();
+        while offset < self.inner.height() - GRID_SIZE {
+            if self.is_pin_offset_available(PinSide::West, offset) {
+                locations.push(NewPinLocation {
+                    side: PinSide::West,
+                    offset,
+                    pos: self.inner.left_top() + vec2(0.0, offset + GRID_SIZE),
+                })
+            }
+            if self.is_pin_offset_available(PinSide::East, offset) {
+                locations.push(NewPinLocation {
+                    side: PinSide::East,
+                    offset,
+                    pos: self.inner.right_top() + vec2(0.0, offset + GRID_SIZE),
+                })
+            }
+            offset += GRID_SIZE;
+        }
+        locations
+    }
     fn title_anchor(&self) -> Option<Pos2> {
         let (pos, _) = block_title_position(self.inner, &self.title);
         Some(pos)
+    }
+    fn render_ng(&self, mode: RenderMode, painter: &mut Painter) {
+        let bbox = self.inner;
+        crate::widget_ng::render::draw_block_frame(bbox, &self.title, painter);
+        crate::widget_ng::render::render_pins_with_box(self.pins.values(), bbox, painter);
     }
     fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult {
         let bbox = self.inner;

@@ -18,7 +18,7 @@ pub enum Event {
     HoverAt(Pos2),
     DragStarted { pos: Pos2 },
     Dragging { pos: Pos2, delta: Vec2 },
-    DragStopped,
+    DragStopped { pos: Pos2 },
     Clicked { pos: Pos2 },
     DoubleClicked { pos: Pos2 },
 }
@@ -36,9 +36,12 @@ pub(crate) fn compute_interaction(
     let lost_focus = response.lost_focus();
     // Scope enter to when the canvas has keyboard focus so it doesn't fire
     // while a text field elsewhere is active.
-    let enter_pressed =
-        response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-    Interaction { event, lost_focus, enter_pressed }
+    let enter_pressed = response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    Interaction {
+        event,
+        lost_focus,
+        enter_pressed,
+    }
 }
 
 pub(crate) fn compute_event(
@@ -71,8 +74,12 @@ pub(crate) fn compute_event(
             pos: screen_to_world(pos),
             delta: response.drag_delta() / zoom,
         })
-    } else if response.drag_stopped() {
-        Some(Event::DragStopped)
+    } else if response.drag_stopped()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        Some(Event::DragStopped {
+            pos: screen_to_world(pos),
+        })
     } else if response.hovered()
         && let Some(pos) = response.hover_pos()
     {

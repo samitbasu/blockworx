@@ -2,6 +2,7 @@ use egui::{Pos2, Rect, Ui, Vec2};
 use enum_dispatch::enum_dispatch;
 
 use crate::{
+    canvas::painter::Painter,
     grid::grid_rect,
     state::{RenderMode, ResizeMode},
     store::PinId,
@@ -12,6 +13,12 @@ use crate::{
         render::FocusResult,
     },
 };
+
+pub struct NewPinLocation {
+    pub side: PinSide,
+    pub offset: f32,
+    pub pos: Pos2,
+}
 
 /// BaseShape provides a name, and can be resized.
 /// The BaseShape also provides a Pin management API,
@@ -82,6 +89,13 @@ pub trait BaseShape {
     }
     fn update_pin_offset(&mut self, _pin_id: PinId, _delta_y: f32) {}
     fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult;
+    fn render_ng(&self, mode: RenderMode, painter: &mut Painter) {
+        let _ = mode;
+        let _ = painter;
+    }
+    fn new_pin_locations(&self) -> Vec<NewPinLocation> {
+        Vec::new()
+    }
     fn title_anchor(&self) -> Option<Pos2> {
         None
     }

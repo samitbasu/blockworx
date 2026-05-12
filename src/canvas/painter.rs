@@ -3,6 +3,8 @@ use egui::{
     epaint::{PathShape, PathStroke, TextShape},
 };
 
+use crate::theme::Theme;
+
 /// A transform-aware painter that accepts world-space coordinates and converts them
 /// to screen space internally. All sizes — font sizes, stroke widths, radii, rounding —
 /// scale with zoom so the diagram looks consistent at any zoom level. Unlike egui's
@@ -13,16 +15,28 @@ pub struct Painter {
     origin: Pos2,
     zoom: f32,
     translation: Vec2,
+    theme: Theme,
 }
 
 impl Painter {
-    pub(crate) fn new(inner: egui::Painter, origin: Pos2, zoom: f32, translation: Vec2) -> Self {
+    pub(crate) fn new(
+        inner: egui::Painter,
+        origin: Pos2,
+        zoom: f32,
+        translation: Vec2,
+        theme: Theme,
+    ) -> Self {
         Self {
             inner,
             origin,
             zoom,
             translation,
+            theme,
         }
+    }
+
+    pub fn theme(&self) -> &Theme {
+        &self.theme
     }
 
     /// World-space position → screen-space position.
@@ -58,17 +72,15 @@ impl Painter {
     }
 
     /// Draw a rectangle outline with no fill. All arguments are in world space and scale with zoom.
-    pub fn rect_stroke(
-        &self,
-        rect: Rect,
-        rounding: f32,
-        stroke: impl Into<Stroke>,
-        stroke_kind: StrokeKind,
-    ) {
+    pub fn rect_stroke(&self, rect: Rect, rounding: f32, stroke: impl Into<Stroke>) {
         let screen = Rect::from_min_max(self.w2s(rect.min), self.w2s(rect.max));
         let screen_rounding = CornerRadius::same((rounding * self.zoom).round().min(255.0) as u8);
-        self.inner
-            .rect_stroke(screen, screen_rounding, self.scale_stroke(stroke), stroke_kind);
+        self.inner.rect_stroke(
+            screen,
+            screen_rounding,
+            self.scale_stroke(stroke),
+            StrokeKind::Middle,
+        );
     }
 
     // ── Text ───────────────────────────────────────────────────────────────
@@ -86,7 +98,8 @@ impl Painter {
         color: impl Into<Color32>,
     ) -> Rect {
         let scaled = FontId::new(font.size * self.zoom, font.family);
-        self.inner.text(self.w2s(pos), anchor, text, scaled, color.into())
+        self.inner
+            .text(self.w2s(pos), anchor, text, scaled, color.into())
     }
 
     /// Draw text rotated by `angle` radians around `pos` using the given `anchor`.
@@ -107,8 +120,8 @@ impl Painter {
         let color = color.into();
         let scaled = FontId::new(font.size * self.zoom, font.family);
         let galley = self.inner.layout_no_wrap(text.to_string(), scaled, color);
-        let shape = TextShape::new(self.w2s(pos), galley, color)
-            .with_angle_and_anchor(angle, anchor);
+        let shape =
+            TextShape::new(self.w2s(pos), galley, color).with_angle_and_anchor(angle, anchor);
         self.inner.add(shape);
     }
 
@@ -117,7 +130,9 @@ impl Painter {
     /// divided back by zoom to give world-space dimensions. Use this for layout and hit-testing.
     pub fn text_size(&self, text: impl ToString, font: FontId) -> egui::Vec2 {
         let scaled = FontId::new(font.size * self.zoom, font.family);
-        let galley = self.inner.layout_no_wrap(text.to_string(), scaled, Color32::WHITE);
+        let galley = self
+            .inner
+            .layout_no_wrap(text.to_string(), scaled, Color32::WHITE);
         galley.size() / self.zoom
     }
 
@@ -147,8 +162,11 @@ impl Painter {
 
     /// Draw a circle outline. Center and radius are in world space. Stroke width scales with zoom.
     pub fn circle_stroke(&self, center: Pos2, radius: f32, stroke: impl Into<Stroke>) {
-        self.inner
-            .circle_stroke(self.w2s(center), radius * self.zoom, self.scale_stroke(stroke));
+        self.inner.circle_stroke(
+            self.w2s(center),
+            radius * self.zoom,
+            self.scale_stroke(stroke),
+        );
     }
 
     /// Draw a filled and stroked circle. All arguments scale with zoom.

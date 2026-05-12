@@ -4,7 +4,7 @@ use egui::{
 };
 
 use crate::{
-    canvas::interaction::Event,
+    canvas::{Interaction, interaction::Event, painter::Painter},
     grid::{
         GRID_SIZE, MOVE_HOVER_DISTANCE, PORT_HEIGHT, PORT_RADIUS, ROUTE_TEXT_SIZE, SHIM, grid_rect,
         round_to_grid, snap_to_grid,
@@ -138,6 +138,12 @@ enum Action {
 }
 
 impl Drawing {
+    pub fn data(&self) -> &Data {
+        &self.data
+    }
+    pub fn data_mut(&mut self) -> &mut Data {
+        &mut self.data
+    }
     pub fn routing_box(&self, id: RectId) -> Option<Rect> {
         let rect = self.data.rect(id)?.gui_rect();
         if let State::MovingRect(inner) = &self.state
@@ -1080,7 +1086,7 @@ impl Drawing {
         }
     }
     fn handle_panning(&self, event: Event) -> Action {
-        if matches!(event, Event::DragStopped) {
+        if matches!(event, Event::DragStopped { .. }) {
             return Action::TransitionTo(State::idle());
         }
         Action::TransitionTo(State::panning())

@@ -1,7 +1,7 @@
 use egui::{PointerButton, Pos2, Sense, Stroke, Vec2, pos2};
 
 use crate::grid::GRID_SIZE;
-use crate::theme::get_theme;
+use crate::theme::{Theme, get_theme};
 
 use super::interaction::{Interaction, compute_interaction};
 use super::painter::Painter;
@@ -9,18 +9,17 @@ use super::painter::Painter;
 pub struct View {
     pub zoom: f32,
     pub translation: Vec2,
-}
-
-impl Default for View {
-    fn default() -> Self {
-        Self {
-            zoom: 1.0,
-            translation: Vec2::ZERO,
-        }
-    }
+    pub theme: Theme,
 }
 
 impl View {
+    pub fn new(theme: Theme) -> Self {
+        Self {
+            zoom: 1.0,
+            translation: Vec2::ZERO,
+            theme,
+        }
+    }
     fn world_to_screen(&self, origin: Pos2, world: Pos2) -> Pos2 {
         origin + self.translation + world.to_vec2() * self.zoom
     }
@@ -110,7 +109,13 @@ impl View {
         );
 
         // Hand off to the caller's drawing closure
-        let mut painter = Painter::new(egui_painter, origin, self.zoom, self.translation);
+        let mut painter = Painter::new(
+            egui_painter,
+            origin,
+            self.zoom,
+            self.translation,
+            self.theme.clone(),
+        );
         f(interaction, &mut painter);
     }
 }

@@ -1,6 +1,7 @@
 use egui::{Color32, Pos2, Rect, Stroke, TextEdit, Ui, Vec2, pos2, vec2};
 
 use crate::{
+    canvas::painter::Painter,
     grid::{GRID_SIZE, PORT_HEIGHT, PORT_RADIUS, PORT_TEXT_SIZE, grid_rect, snap},
     state::{RenderMode, ResizeMode},
     store::PinId,
@@ -104,7 +105,28 @@ impl BaseShape for Port {
             ),
         })
     }
+    fn render_ng(&self, mode: RenderMode, painter: &mut Painter) {
+        let bbox = self.inner;
+        let side = Some(self.pin.side);
+        let draw_normal = |bbox: Rect, name: &str, side: Option<PinSide>, painter: &mut Painter| {
+            crate::widget_ng::render::draw_box_outline(
+                bbox,
+                side,
+                painter.theme().shape_fill,
+                Stroke::new(1.0, painter.theme().shape_stroke),
+                painter,
+            );
+            painter.text(
+                bbox.center(),
+                egui::Align2::CENTER_CENTER,
+                name,
+                egui::FontId::monospace(PORT_TEXT_SIZE),
+                painter.theme().pin_text,
+            );
+        };
 
+        draw_normal(bbox, &self.pin.text, side, painter);
+    }
     fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult {
         let bbox = self.inner;
         let side = Some(self.pin.side);

@@ -5,13 +5,16 @@ use egui::{Align2, FontId, Rect, Stroke, pos2};
 
 use crate::{
     canvas::{Event, Interaction, View},
+    grid::GRID_SIZE,
     theme::{Theme, get_theme},
-    widget::drawing::Drawing, // Mode used in commented-out toolbar below
+    widget::drawing::Drawing,
+    widget_ng::{
+        move_tool::MoveTool,
+        new_block::NewBlock,
+        tool::{Tool, ToolTrait},
+        toolbar::toolbar,
+    }, // Mode used in commented-out toolbar below
 };
-
-// enum Pane {
-//     Drawing,
-// }
 
 pub struct App {
     #[allow(dead_code)]
@@ -22,6 +25,7 @@ pub struct App {
     pub scene_rect: Rect,
     pub theme: Theme,
     canvas: View,
+    tool: Tool,
 }
 
 impl App {
@@ -31,7 +35,8 @@ impl App {
             drawing: Drawing::demo(),
             scene_rect: Rect::ZERO,
             theme: Theme::default(),
-            canvas: View::default(),
+            canvas: View::new(Theme::default()),
+            tool: Tool::Move(MoveTool),
         }
     }
 }
@@ -40,25 +45,11 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, self.theme));
         egui::CentralPanel::default().show(ctx, |ui| {
-            let theme = get_theme(ui);
             self.canvas.show(ui, |interaction, painter| {
-                let demo_world = egui::Rect::from_min_max(pos2(60.0, 60.0), pos2(240.0, 150.0));
-                let hovered =
-                    matches!(interaction.event, Some(Event::HoverAt(p)) if demo_world.contains(p));
-                let fill = if hovered {
-                    theme.hover_fill
-                } else {
-                    theme.shape_fill
-                };
-                painter.rect(demo_world, 4.0, fill, Stroke::new(1.0, theme.shape_stroke));
-                painter.text(
-                    demo_world.center(),
-                    Align2::CENTER_CENTER,
-                    "Demo Block",
-                    FontId::proportional(14.0),
-                    theme.shape_title,
-                );
+                self.tool
+                    .widget(self.drawing.data_mut(), &interaction, painter);
             });
+            toolbar(&mut self.tool, ctx);
 
             // Old Scene-based drawing (preserved for incremental migration):
             // let scene = if self.drawing.mode == Mode::Move {
