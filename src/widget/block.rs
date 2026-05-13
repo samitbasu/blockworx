@@ -4,7 +4,6 @@ use crate::{
     canvas::painter::Painter,
     grid::{
         GRID_SIZE, PORT_RADIUS, PORT_TEXT_SIZE, TITLE_TEXT_SIZE, grid_rect, round_to_grid, snap,
-        snap_to_grid,
     },
     state::{RenderMode, ResizeMode},
     store::*,
@@ -272,7 +271,7 @@ impl BaseShape for Block {
                     (2.0, painter.theme().pin_drag_indicator),
                 );
                 if let Some(pin) = self.pins.get(pin) {
-                    crate::widget_ng::render::draw_pin(bbox, pin, delta, side, painter);
+                    crate::widget_ng::render::draw_pin(bbox, pin, delta, Some(side), painter);
                 }
                 return;
             }

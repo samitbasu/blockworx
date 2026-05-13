@@ -4,10 +4,10 @@ use egui::{
 };
 
 use crate::{
-    canvas::{Interaction, interaction::Event, painter::Painter},
+    canvas::interaction::Event,
     grid::{
         GRID_SIZE, MOVE_HOVER_DISTANCE, PORT_HEIGHT, PORT_RADIUS, ROUTE_TEXT_SIZE, SHIM, grid_rect,
-        round_to_grid, snap_to_grid,
+        snap_to_grid,
     },
     router::{RouterNG, RouterNGBuilder, WIRE_COST, cost::COST_ZERO},
     state::*,
@@ -20,10 +20,7 @@ use crate::{
         data::Data,
         direction::RouteDirection,
         pin::PinSide,
-        render::{
-            FocusResult, estimate_bbox_for_pin_text, get_control_pin_bbox, get_hamburger_rect,
-            render_path_with_chamfered_corners,
-        },
+        render::{FocusResult, estimate_bbox_for_pin_text, render_path_with_chamfered_corners},
         shape::{BaseShape, Shape},
         tool::{
             new_block::NewBlock,
@@ -33,8 +30,6 @@ use crate::{
         waypoint::Waypoint,
     },
 };
-
-const GRIP_SHIM: f32 = 4.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Mode {
@@ -665,7 +660,7 @@ impl Drawing {
             Event::DragStarted { pos } => {
                 eprintln!("Drag started at {pos}");
                 if let Some(hbox) = self.data.rect(rect)
-                    && let Some(lid) = hbox.find_pin(|lid, pin| {
+                    && let Some(_lid) = hbox.find_pin(|lid, pin| {
                         let pin_bbox = estimate_bbox_for_pin_text(hbox.gui_rect(), pin).expand(3.0);
                         eprintln!(
                             "Checking pin {} with bbox {} against pos {pos}",

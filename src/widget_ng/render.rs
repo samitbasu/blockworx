@@ -1,4 +1,4 @@
-use egui::{Color32, Pos2, Rect, Stroke, Vec2, pos2, vec2};
+use egui::{Color32, Pos2, Rect, Stroke, pos2, vec2};
 
 use crate::{
     canvas::painter::Painter,
@@ -96,9 +96,16 @@ pub fn pin_text_location(
     }
 }
 
-pub fn draw_pin(bbox: Rect, pin: &Pin, delta_y: f32, side: PinSide, painter: &mut Painter) {
+pub fn draw_pin(
+    bbox: Rect,
+    pin: &Pin,
+    delta_y: f32,
+    override_side: Option<PinSide>,
+    painter: &mut Painter,
+) {
     // Destructure the pin
     let theme = painter.theme();
+    let side = override_side.unwrap_or(pin.side);
     let (text_pos, align) = pin_text_location(bbox, pin, side, delta_y);
     let stem = match side {
         PinSide::East => vec2(GRID_SIZE, 0.0),
@@ -125,7 +132,7 @@ pub fn render_pins_with_box<'a>(
     painter: &mut Painter,
 ) {
     for pin in iter {
-        draw_pin(bbox, pin, 0.0, pin.side, painter);
+        draw_pin(bbox, pin, 0.0, None, painter);
     }
 }
 

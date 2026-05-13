@@ -269,7 +269,7 @@ pub fn draw_control_frame(
         );
     }
     if let Some(title) = title {
-        let (title_anchor_pos, align) = block_title_position(bbox, title);
+        let (title_anchor_pos, _) = block_title_position(bbox, title);
         ui.painter().rect(
             Rect::from_center_size(
                 title_anchor_pos,

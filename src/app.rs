@@ -1,16 +1,14 @@
 use std::path::PathBuf;
 
 // use egui::{DragPanButtons, Rect, Scene};
-use egui::{Align2, FontId, Rect, Stroke, pos2};
+use egui::Rect;
 
 use crate::{
-    canvas::{Event, Interaction, View},
-    grid::GRID_SIZE,
-    theme::{Theme, get_theme},
+    canvas::View,
+    theme::Theme,
     widget::drawing::Drawing,
     widget_ng::{
         move_tool::MoveTool,
-        new_block::NewBlock,
         tool::{Tool, ToolTrait},
         toolbar::toolbar,
     }, // Mode used in commented-out toolbar below
