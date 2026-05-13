@@ -10,8 +10,8 @@ use crate::{
         drawing::LineAnchor,
         pin::PinSide,
         port::Port,
-        render::get_control_pin_bbox,
-        shape::{BaseShape, Shape},
+        render::{estimate_bbox_for_pin_text, get_control_pin_bbox},
+        shape::{BaseShape, PinLocation, Shape},
     },
 };
 
@@ -20,14 +20,6 @@ pub struct Data {
     rect_boxes: Store<RectId, Shape>,
     auto_routes: Store<RouteId, AutoRoute>,
     router: Option<RouterNG>,
-}
-
-#[derive(Debug)]
-pub struct AddPinLocation {
-    pub rect: RectId,
-    pub side: PinSide,
-    pub offset: f32,
-    pub pos: Pos2,
 }
 
 impl Data {
@@ -88,6 +80,27 @@ impl Data {
         }
         None
     }
+    pub fn pin_text_at_pos(&self, pos: Pos2) -> Option<(LineAnchor, PinLocation)> {
+        for (id, rect_box) in self.rect_boxes() {
+            if let Some(pin) = rect_box.find_pin(|pid, pin| {
+                let text_box = estimate_bbox_for_pin_text(rect_box.gui_rect(), pin).expand(4.0);
+                if text_box.contains(pos) {
+                    Some((
+                        LineAnchor { rect: id, pin: pid },
+                        PinLocation {
+                            side: pin.side,
+                            offset: pin.offset,
+                        },
+                    ))
+                } else {
+                    None
+                }
+            }) {
+                return Some(pin);
+            }
+        }
+        None
+    }
     pub fn anchor(&self, anchor: LineAnchor) -> Option<Pos2> {
         let shape = self.rect(anchor.rect)?;
         shape.anchor_point_with_rect(shape.gui_rect(), anchor.pin)
@@ -135,22 +148,17 @@ impl Data {
         self.set_routes(routes);
         self.router = Some(router);
     }
-    pub fn new_pin_location(&self, pos: Pos2) -> Option<AddPinLocation> {
+    pub fn new_pin_location(&self, pos: Pos2) -> Option<(RectId, PinLocation)> {
         for (rect_id, shape) in self.rect_boxes.iter() {
-            if let Some((side, offset)) = shape.new_pin_location(pos) {
-                return Some(AddPinLocation {
-                    rect: rect_id,
-                    side,
-                    offset,
-                    pos,
-                });
+            if let Some(location) = shape.new_pin_location(pos) {
+                return Some((rect_id, location));
             }
         }
         None
     }
-    pub fn add_new_pin(&mut self, loc: AddPinLocation) {
-        if let Some(shape) = self.rect_boxes.get_mut(loc.rect) {
-            shape.add_pin("Pin".into(), loc.side, loc.offset);
+    pub fn add_new_pin(&mut self, rect: RectId, loc: PinLocation) {
+        if let Some(shape) = self.rect_boxes.get_mut(rect) {
+            shape.add_pin("Pin".into(), loc);
         }
     }
     pub fn scratch_router(&mut self) -> RouterNG {

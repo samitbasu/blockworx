@@ -1,8 +1,9 @@
 use crate::{
     grid::GRID_SIZE,
     widget_ng::{
+        move_pin::MovePin,
         move_tool::MoveTool,
-        names::{TOOL_NAMES, ToolName},
+        names::{TOOLBAR_TOOLS, ToolName},
         new_block::NewBlock,
         new_pin::NewPin,
         tool::{Tool, ToolTrait},
@@ -15,7 +16,7 @@ pub fn toolbar(tool: &mut Tool, ctx: &egui::Context) {
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    for mode in TOOL_NAMES {
+                    for mode in TOOLBAR_TOOLS {
                         let label = mode.to_string();
                         if ui
                             .add(egui::Button::new(label).selected(&tool.name() == mode))
@@ -25,6 +26,7 @@ pub fn toolbar(tool: &mut Tool, ctx: &egui::Context) {
                                 ToolName::Move => Tool::Move(MoveTool),
                                 ToolName::NewBlock => Tool::NewBlock(NewBlock::Idle),
                                 ToolName::NewPin => Tool::NewPin(NewPin),
+                                ToolName::MovePin => Tool::MovePin(MovePin::Idle),
                             };
                         }
                     }

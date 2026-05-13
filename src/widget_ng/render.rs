@@ -1,4 +1,4 @@
-use egui::{Color32, Pos2, Rect, Stroke, pos2, vec2};
+use egui::{Color32, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 
 use crate::{
     canvas::painter::Painter,
@@ -77,9 +77,14 @@ pub fn draw_box_outline(
     }
 }
 
-pub fn pin_text_location(bbox: Rect, pin: &Pin, offset: f32) -> (Pos2, egui::Align2) {
+pub fn pin_text_location(
+    bbox: Rect,
+    pin: &Pin,
+    side: PinSide,
+    offset: f32,
+) -> (Pos2, egui::Align2) {
     let y_coord = bbox.top() + GRID_SIZE + pin.offset + offset;
-    match pin.side {
+    match side {
         PinSide::East => (
             pos2(bbox.right() - GRID_SIZE, y_coord),
             egui::Align2::RIGHT_CENTER,
@@ -91,10 +96,11 @@ pub fn pin_text_location(bbox: Rect, pin: &Pin, offset: f32) -> (Pos2, egui::Ali
     }
 }
 
-pub fn draw_pin(bbox: Rect, pin: &Pin, offset: f32, painter: &mut Painter) {
+pub fn draw_pin(bbox: Rect, pin: &Pin, delta_y: f32, side: PinSide, painter: &mut Painter) {
+    // Destructure the pin
     let theme = painter.theme();
-    let (text_pos, align) = pin_text_location(bbox, pin, offset);
-    let stem = match pin.side {
+    let (text_pos, align) = pin_text_location(bbox, pin, side, delta_y);
+    let stem = match side {
         PinSide::East => vec2(GRID_SIZE, 0.0),
         PinSide::West => vec2(-GRID_SIZE, 0.0),
     };
@@ -119,7 +125,7 @@ pub fn render_pins_with_box<'a>(
     painter: &mut Painter,
 ) {
     for pin in iter {
-        draw_pin(bbox, pin, 0.0, painter);
+        draw_pin(bbox, pin, 0.0, pin.side, painter);
     }
 }
 

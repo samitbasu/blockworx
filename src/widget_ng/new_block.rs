@@ -4,7 +4,10 @@ use crate::{
     canvas::{Event, Interaction, painter::Painter},
     grid::GRID_SIZE,
     widget::data::Data,
-    widget_ng::{names::ToolName, tool::ToolTrait},
+    widget_ng::{
+        names::ToolName,
+        tool::{Tool, ToolTrait},
+    },
 };
 
 pub enum NewBlock {
@@ -16,7 +19,12 @@ impl ToolTrait for NewBlock {
     fn name(&self) -> ToolName {
         ToolName::NewBlock
     }
-    fn widget(&mut self, data: &mut Data, interaction: &Interaction, painter: &mut Painter) {
+    fn widget(
+        &mut self,
+        data: &mut Data,
+        interaction: &Interaction,
+        painter: &mut Painter,
+    ) -> Option<Tool> {
         // Draw the background
         super::display::widget(data, interaction, painter);
         match self {
@@ -45,5 +53,6 @@ impl ToolTrait for NewBlock {
                 }
             }
         }
+        None
     }
 }

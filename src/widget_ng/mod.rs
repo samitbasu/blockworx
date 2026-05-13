@@ -1,4 +1,5 @@
 pub mod display;
+pub mod move_pin;
 pub mod move_tool;
 pub mod names;
 pub mod new_block;

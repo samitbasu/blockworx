@@ -1,5 +1,5 @@
 use egui::{
-    Align2, Color32, CornerRadius, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2,
+    Align2, Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2,
     epaint::{PathShape, PathStroke, TextShape},
 };
 
@@ -16,6 +16,7 @@ pub struct Painter {
     zoom: f32,
     translation: Vec2,
     theme: Theme,
+    cursor: Option<CursorIcon>,
 }
 
 impl Painter {
@@ -32,7 +33,16 @@ impl Painter {
             zoom,
             translation,
             theme,
+            cursor: None,
         }
+    }
+
+    pub fn set_cursor(&mut self, cursor: CursorIcon) {
+        self.cursor = Some(cursor);
+    }
+
+    pub fn cursor(&self) -> Option<CursorIcon> {
+        self.cursor
     }
 
     pub fn theme(&self) -> &Theme {

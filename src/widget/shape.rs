@@ -14,10 +14,19 @@ use crate::{
     },
 };
 
-pub struct NewPinLocation {
+#[derive(Copy, Clone, Debug)]
+pub struct PinLocation {
     pub side: PinSide,
     pub offset: f32,
-    pub pos: Pos2,
+}
+
+impl Into<PinLocation> for (PinSide, f32) {
+    fn into(self) -> PinLocation {
+        PinLocation {
+            side: self.0,
+            offset: self.1,
+        }
+    }
 }
 
 /// BaseShape provides a name, and can be resized.
@@ -80,20 +89,27 @@ pub trait BaseShape {
     fn anchor_point(&self, id: PinId) -> Option<Pos2> {
         self.anchor_point_with_rect(self.gui_rect(), id)
     }
-    fn new_pin_location(&self, pos: Pos2) -> Option<(PinSide, f32)> {
+    fn new_pin_location(&self, pos: Pos2) -> Option<PinLocation> {
         let _ = pos;
         None
     }
-    fn add_pin(&mut self, _text: String, _side: PinSide, _offset: f32) -> Option<PinId> {
+    fn pin_position(&self, location: PinLocation) -> Option<Pos2> {
+        let _ = location;
         None
     }
-    fn update_pin_offset(&mut self, _pin_id: PinId, _delta_y: f32) {}
+    fn add_pin(&mut self, _text: String, location: impl Into<PinLocation>) -> Option<PinId> {
+        let _ = location;
+        None
+    }
+    fn update_pin_location(&mut self, pin_id: PinId, location: PinLocation) {
+        let _ = (pin_id, location);
+    }
     fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult;
     fn render_ng(&self, mode: RenderMode, painter: &mut Painter) {
         let _ = mode;
         let _ = painter;
     }
-    fn new_pin_locations(&self) -> Vec<NewPinLocation> {
+    fn new_pin_locations(&self) -> Vec<PinLocation> {
         Vec::new()
     }
     fn title_anchor(&self) -> Option<Pos2> {

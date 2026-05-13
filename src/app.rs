@@ -45,10 +45,21 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, self.theme));
         egui::CentralPanel::default().show(ctx, |ui| {
+            let mut ui_cursor = None;
             self.canvas.show(ui, |interaction, painter| {
-                self.tool
-                    .widget(self.drawing.data_mut(), &interaction, painter);
+                if let Some(next_tool) =
+                    self.tool
+                        .widget(self.drawing.data_mut(), &interaction, painter)
+                {
+                    self.tool = next_tool;
+                }
+                ui_cursor = painter.cursor();
             });
+            if let Some(cursor) = ui_cursor {
+                ui.output_mut(|o| {
+                    o.cursor_icon = cursor;
+                });
+            }
             toolbar(&mut self.tool, ctx);
 
             // Old Scene-based drawing (preserved for incremental migration):

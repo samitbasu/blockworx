@@ -8,15 +8,33 @@ use crate::{
 #[derive(Clone, Copy, Debug)]
 pub enum RenderMode {
     Normal,
-    Moving { delta: Vec2 },
-    Resizing { mode: ResizeMode, delta: Vec2 },
+    Moving {
+        delta: Vec2,
+    },
+    Resizing {
+        mode: ResizeMode,
+        delta: Vec2,
+    },
     Selected,
-    PinHeadHovered { pin: PinId },
-    PinDragged { pin: PinId, delta: Vec2 },
+    PinHeadHovered {
+        pin: PinId,
+    },
+    PinDragged {
+        pin: PinId,
+        delta: f32,
+        side: PinSide,
+    },
     EditingName,
-    EditingPinText { pin: PinId },
-    TitleDragged { delta: Vec2 },
-    PinAddHovered { side: PinSide, offset: f32 },
+    EditingPinText {
+        pin: PinId,
+    },
+    TitleDragged {
+        delta: Vec2,
+    },
+    PinAddHovered {
+        side: PinSide,
+        offset: f32,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

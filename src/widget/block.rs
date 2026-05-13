@@ -4,6 +4,7 @@ use crate::{
     canvas::painter::Painter,
     grid::{
         GRID_SIZE, PORT_RADIUS, PORT_TEXT_SIZE, TITLE_TEXT_SIZE, grid_rect, round_to_grid, snap,
+        snap_to_grid,
     },
     state::{RenderMode, ResizeMode},
     store::*,
@@ -14,7 +15,7 @@ use crate::{
             FocusResult, GripState, block_title_position, draw_box_outline, draw_pin,
             get_control_pin_bbox, pin_text_location, render_pins_with_box,
         },
-        shape::{BaseShape, NewPinLocation},
+        shape::{BaseShape, PinLocation},
     },
 };
 
@@ -99,7 +100,8 @@ impl Block {
         }
     }
 
-    pub fn is_pin_offset_available(&self, side: PinSide, offset: f32) -> bool {
+    pub fn is_pin_location_available(&self, location: PinLocation) -> bool {
+        let PinLocation { side, offset } = location;
         if offset < 0.0 || offset > self.inner.height() {
             return false;
         }
@@ -109,18 +111,15 @@ impl Block {
             .all(|l| (l.offset - offset).abs() >= GRID_SIZE * 0.2)
     }
 
-    pub fn update_pin_offset_inner(&mut self, pin_id: PinId, delta_y: f32) {
-        let Some(pin_ref) = self.pin(pin_id) else {
-            return;
-        };
-        let pin_offset = round_to_grid(pin_ref.offset + delta_y);
-        if !self.is_pin_offset_available(pin_ref.side, pin_offset) {
+    pub fn update_pin_location_inner(&mut self, pin_id: PinId, location: PinLocation) {
+        if !self.is_pin_location_available(location) {
             return;
         }
         let Some(pin_ref) = self.pins_mut(pin_id) else {
             return;
         };
-        pin_ref.offset = pin_offset;
+        pin_ref.side = location.side;
+        pin_ref.offset = location.offset;
     }
 
     pub fn add_pin_inner(&mut self, text: String, side: PinSide, offset: f32) -> PinId {
@@ -182,13 +181,14 @@ impl BaseShape for Block {
             PinSide::West => pos2(rect.left() - GRID_SIZE, rect.top() + GRID_SIZE + pin.offset),
         })
     }
-    fn add_pin(&mut self, text: String, side: PinSide, offset: f32) -> Option<PinId> {
-        Some(self.add_pin_inner(text, side, offset))
+    fn add_pin(&mut self, text: String, location: impl Into<PinLocation>) -> Option<PinId> {
+        let location = location.into();
+        Some(self.add_pin_inner(text, location.side, location.offset))
     }
-    fn update_pin_offset(&mut self, pin_id: PinId, delta_y: f32) {
-        self.update_pin_offset_inner(pin_id, delta_y);
+    fn update_pin_location(&mut self, pin_id: PinId, location: PinLocation) {
+        self.update_pin_location_inner(pin_id, location);
     }
-    fn new_pin_location(&self, pos: Pos2) -> Option<(PinSide, f32)> {
+    fn new_pin_location(&self, pos: Pos2) -> Option<PinLocation> {
         let left_top = self.inner.left_top();
         let offset = round_to_grid(pos.y - left_top.y);
         if offset < 0.0 || offset > self.inner.height() {
@@ -200,7 +200,10 @@ impl BaseShape for Block {
             }) {
                 return None;
             }
-            return Some((PinSide::West, offset));
+            return Some(PinLocation {
+                side: PinSide::West,
+                offset,
+            });
         }
         let right_top = self.inner.right_top();
         if (pos.x - right_top.x).abs() < GRID_SIZE / 2.0 {
@@ -209,31 +212,44 @@ impl BaseShape for Block {
             }) {
                 return None;
             }
-            return Some((PinSide::East, offset));
+            return Some(PinLocation {
+                side: PinSide::East,
+                offset,
+            });
         }
         None
     }
-    fn new_pin_locations(&self) -> Vec<NewPinLocation> {
+    // TODO - clean this up
+    fn new_pin_locations(&self) -> Vec<PinLocation> {
         let mut offset = 0.0;
         let mut locations = Vec::new();
         while offset < self.inner.height() - GRID_SIZE {
-            if self.is_pin_offset_available(PinSide::West, offset) {
-                locations.push(NewPinLocation {
+            if self.is_pin_location_available((PinSide::West, offset).into()) {
+                locations.push(PinLocation {
                     side: PinSide::West,
                     offset,
-                    pos: self.inner.left_top() + vec2(0.0, offset + GRID_SIZE),
                 })
             }
-            if self.is_pin_offset_available(PinSide::East, offset) {
-                locations.push(NewPinLocation {
+            if self.is_pin_location_available((PinSide::East, offset).into()) {
+                locations.push(PinLocation {
                     side: PinSide::East,
                     offset,
-                    pos: self.inner.right_top() + vec2(0.0, offset + GRID_SIZE),
                 })
             }
             offset += GRID_SIZE;
         }
         locations
+    }
+    fn pin_position(&self, location: PinLocation) -> Option<Pos2> {
+        let left_top = self.inner.left_top();
+        let offset = location.offset;
+        if offset < 0.0 || offset > self.inner.height() {
+            return None;
+        }
+        Some(match location.side {
+            PinSide::West => left_top + vec2(0.0, offset + GRID_SIZE),
+            PinSide::East => self.inner.right_top() + vec2(0.0, offset + GRID_SIZE),
+        })
     }
     fn title_anchor(&self) -> Option<Pos2> {
         let (pos, _) = block_title_position(self.inner, &self.title);
@@ -241,8 +257,30 @@ impl BaseShape for Block {
     }
     fn render_ng(&self, mode: RenderMode, painter: &mut Painter) {
         let bbox = self.inner;
-        crate::widget_ng::render::draw_block_frame(bbox, &self.title, painter);
-        crate::widget_ng::render::render_pins_with_box(self.pins.values(), bbox, painter);
+        match mode {
+            RenderMode::PinDragged { pin, delta, side } => {
+                crate::widget_ng::render::draw_block_frame(bbox, &self.title, painter);
+                crate::widget_ng::render::render_pins_with_box(
+                    self.pins
+                        .iter()
+                        .filter_map(|(id, p)| if id != pin { Some(p) } else { None }),
+                    bbox,
+                    painter,
+                );
+                painter.line_segment(
+                    [bbox.center_top(), bbox.center_bottom()],
+                    (2.0, painter.theme().pin_drag_indicator),
+                );
+                if let Some(pin) = self.pins.get(pin) {
+                    crate::widget_ng::render::draw_pin(bbox, pin, delta, side, painter);
+                }
+                return;
+            }
+            _ => {
+                crate::widget_ng::render::draw_block_frame(bbox, &self.title, painter);
+                crate::widget_ng::render::render_pins_with_box(self.pins.values(), bbox, painter);
+            }
+        }
     }
     fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult {
         let bbox = self.inner;
@@ -329,6 +367,7 @@ impl BaseShape for Block {
             RenderMode::PinDragged {
                 pin: dragged_pin,
                 delta,
+                side: _,
             } => {
                 let theme = get_theme(ui);
                 draw_block_frame(bbox, &self.title, ui);
@@ -345,7 +384,7 @@ impl BaseShape for Block {
                     (2.0, theme.pin_drag_indicator),
                 );
                 if let Some(pin) = self.pins.get(dragged_pin) {
-                    draw_pin(bbox, pin, GripState::Drawn, delta.y, ui);
+                    draw_pin(bbox, pin, GripState::Drawn, delta, ui);
                 }
             }
             RenderMode::TitleDragged { delta } => {

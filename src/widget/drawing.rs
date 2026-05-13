@@ -27,9 +27,8 @@ use crate::{
         shape::{BaseShape, Shape},
         tool::{
             new_block::NewBlock,
-            new_pin::NewPin,
             route::Route,
-            select::{SubtoolState, drag_pin::DragPin, rename_pin::RenamePin},
+            select::{SubtoolState, rename_pin::RenamePin},
         },
         waypoint::Waypoint,
     },
@@ -61,8 +60,6 @@ pub struct Drawing {
     pub mode: Mode,
     new_block: NewBlock,
     route: Route,
-    new_pin: NewPin,
-    drag_pin: Option<DragPin>,
     rename_pin: Option<RenamePin>,
 }
 
@@ -356,10 +353,6 @@ impl Drawing {
         }
         self.new_block.render(ui);
         self.route.render(&self.data, ui);
-        self.new_pin.render(ui);
-        if let Some(pin_edit) = self.drag_pin.as_mut() {
-            pin_edit.render(&mut self.data, ui);
-        }
         if let Some(rename_pin) = self.rename_pin.as_mut() {
             rename_pin.render(&mut self.data, ui);
         }
@@ -685,8 +678,6 @@ impl Drawing {
                         }
                     })
                 {
-                    eprintln!("Starting to drag pin {}", lid);
-                    self.drag_pin = Some(LineAnchor { rect, pin: lid }.into());
                     return Action::TransitionTo(Selected { rect }.into());
                 }
                 return self.drag_start_on_canvas(pos);
@@ -1384,21 +1375,6 @@ impl Drawing {
             self.update_graph(&[]);
             return;
         }
-        if self.mode == Mode::Pin {
-            self.new_pin.update(&mut self.data, &mut response);
-            self.update_graph(&[]);
-            return;
-        }
-        if let Some(edit) = self.drag_pin.as_mut() {
-            eprintln!("Drag pin active");
-            let subtool_state = edit.update(&mut self.data, &mut response);
-            if subtool_state == SubtoolState::Active {
-                return;
-            }
-            eprintln!("Drag pin inactive");
-            self.drag_pin = None;
-            self.update_graph(&[]);
-        }
         if let Some(rename) = self.rename_pin.as_mut() {
             let subtool_state = rename.update(&mut response);
             if subtool_state == SubtoolState::Active {
@@ -1504,8 +1480,7 @@ pub fn demo_drawing() -> Drawing {
         .and_then(|ps| {
             ps.add_pin(
                 "i.1.write_logic".to_string(),
-                PinSide::West,
-                GRID_SIZE * 1.0,
+                (PinSide::West, GRID_SIZE * 1.0),
             )
         })
         .expect("add_pin");
@@ -1519,8 +1494,7 @@ pub fn demo_drawing() -> Drawing {
         .and_then(|ps| {
             ps.add_pin(
                 "i.0.write_logic".to_string(),
-                PinSide::West,
-                GRID_SIZE * 2.0,
+                (PinSide::West, GRID_SIZE * 2.0),
             )
         })
         .expect("add_pin");
@@ -1533,7 +1507,12 @@ pub fn demo_drawing() -> Drawing {
     let box2_port1 = drawing
         .data
         .rect_mut(box2_id)
-        .and_then(|ps| ps.add_pin("o.1.read_logic".to_string(), PinSide::East, GRID_SIZE * 1.0))
+        .and_then(|ps| {
+            ps.add_pin(
+                "o.1.read_logic".to_string(),
+                (PinSide::East, GRID_SIZE * 1.0),
+            )
+        })
         .expect("add_pin");
     let box2_anchor1 = LineAnchor {
         rect: box2_id,
@@ -1542,7 +1521,12 @@ pub fn demo_drawing() -> Drawing {
     let box2_pin2 = drawing
         .data
         .rect_mut(box2_id)
-        .and_then(|ps| ps.add_pin("o.0.read_logic".to_string(), PinSide::East, GRID_SIZE * 2.0))
+        .and_then(|ps| {
+            ps.add_pin(
+                "o.0.read_logic".to_string(),
+                (PinSide::East, GRID_SIZE * 2.0),
+            )
+        })
         .expect("add_pin");
     let box2_anchor2 = LineAnchor {
         rect: box2_id,
