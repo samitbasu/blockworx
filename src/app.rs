@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 // use egui::{DragPanButtons, Rect, Scene};
-use egui::{Rect, TextEdit};
+use egui::Rect;
 
 use crate::{
     canvas::View,
@@ -24,7 +24,6 @@ pub struct App {
     pub theme: Theme,
     canvas: View,
     tool: Tool,
-    focus_lost: bool,
 }
 
 impl App {
@@ -36,7 +35,6 @@ impl App {
             theme: Theme::default(),
             canvas: View::new(Theme::default()),
             tool: Tool::Move(MoveTool),
-            focus_lost: false,
         }
     }
 }
@@ -46,9 +44,7 @@ impl eframe::App for App {
         ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, self.theme));
         egui::CentralPanel::default().show(ctx, |ui| {
             let mut ui_cursor = None;
-            let mut editor = None;
-            self.canvas.show(ui, |mut interaction, painter| {
-                interaction.lost_focus |= self.focus_lost;
+            self.canvas.show(ui, |interaction, painter| {
                 let action = self
                     .tool
                     .widget(self.drawing.data_mut(), &interaction, painter);
@@ -57,27 +53,10 @@ impl eframe::App for App {
                         self.drawing.data_mut().update_routes(&[]);
                         self.tool = next_tool;
                     }
-                    Some(Action::EditLine(edit_line)) => {
-                        editor = Some(edit_line);
-                    }
-                    None => { /* No action */ }
+                    None => {}
                 }
                 ui_cursor = painter.cursor();
             });
-            self.focus_lost = false;
-            if let Some(editor) = editor {
-                let mut buffer = editor.buffer.borrow_mut();
-                let response = ui.place(
-                    editor.position,
-                    TextEdit::singleline(&mut *buffer)
-                        .id(editor.id)
-                        .desired_width(editor.width)
-                        .font(editor.font),
-                );
-                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    self.focus_lost = true;
-                }
-            }
             if let Some(cursor) = ui_cursor {
                 ui.output_mut(|o| {
                     o.cursor_icon = cursor;

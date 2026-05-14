@@ -7,5 +7,6 @@ pub mod new_pin;
 pub mod rename_pin;
 pub mod render;
 pub mod route;
+pub mod route_tool;
 pub mod tool;
 pub mod toolbar;

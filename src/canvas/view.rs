@@ -10,6 +10,8 @@ pub struct View {
     pub zoom: f32,
     pub translation: Vec2,
     pub theme: Theme,
+    text_edit_lost_focus: bool,
+    text_edit_enter_pressed: bool,
 }
 
 impl View {
@@ -18,6 +20,8 @@ impl View {
             zoom: 1.0,
             translation: Vec2::ZERO,
             theme,
+            text_edit_lost_focus: false,
+            text_edit_enter_pressed: false,
         }
     }
     fn world_to_screen(&self, origin: Pos2, world: Pos2) -> Pos2 {
@@ -101,12 +105,18 @@ impl View {
         }
 
         // Bundle mouse event + keyboard flags into a single Interaction value
-        let interaction = compute_interaction(
+        let mut interaction = compute_interaction(
             &response,
             |p| self.screen_to_world(origin, p),
             self.zoom,
             ui,
         );
+
+        // Inject focus results from the previous frame's TextEdit
+        interaction.lost_focus |= self.text_edit_lost_focus;
+        interaction.enter_pressed |= self.text_edit_enter_pressed;
+        self.text_edit_lost_focus = false;
+        self.text_edit_enter_pressed = false;
 
         // Hand off to the caller's drawing closure
         let mut painter = Painter::new(
@@ -117,5 +127,22 @@ impl View {
             self.theme.clone(),
         );
         f(interaction, &mut painter);
+
+        // Render any TextEdit requested by the closure (world-space → screen-space)
+        if let Some(edit) = painter.take_edit_text() {
+            let screen_rect = painter.remap_rect(edit.position);
+            let screen_font = painter.remap_font(edit.font);
+            let mut buffer = edit.buffer.borrow_mut();
+            let resp = ui.place(
+                screen_rect,
+                egui::TextEdit::singleline(&mut *buffer)
+                    .id(edit.id)
+                    .desired_width(f32::INFINITY)
+                    .font(screen_font),
+            );
+            self.text_edit_lost_focus = resp.lost_focus();
+            self.text_edit_enter_pressed =
+                resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        }
     }
 }

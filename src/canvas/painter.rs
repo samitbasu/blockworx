@@ -1,9 +1,20 @@
+use std::{cell::RefCell, sync::Arc};
+
 use egui::{
     Align2, Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2,
     epaint::{PathShape, PathStroke, TextShape},
 };
 
 use crate::theme::Theme;
+
+/// World-space description of an in-place text editor. Passed to `Painter::set_edit_text`;
+/// `View` renders it and feeds focus results back via `Interaction` next frame.
+pub struct EditText {
+    pub position: Rect,
+    pub buffer: Arc<RefCell<String>>,
+    pub font: egui::FontId,
+    pub id: egui::Id,
+}
 
 /// A transform-aware painter that accepts world-space coordinates and converts them
 /// to screen space internally. All sizes — font sizes, stroke widths, radii, rounding —
@@ -17,6 +28,7 @@ pub struct Painter {
     translation: Vec2,
     theme: Theme,
     cursor: Option<CursorIcon>,
+    edit_text: Option<EditText>,
 }
 
 impl Painter {
@@ -34,6 +46,7 @@ impl Painter {
             translation,
             theme,
             cursor: None,
+            edit_text: None,
         }
     }
 
@@ -47,6 +60,17 @@ impl Painter {
 
     pub fn theme(&self) -> &Theme {
         &self.theme
+    }
+
+    /// Request an in-place text editor at `edit.position` (world space).
+    /// `View` renders it after the closure returns and feeds focus results back
+    /// through `Interaction` on the next frame.
+    pub fn set_edit_text(&mut self, edit: EditText) {
+        self.edit_text = Some(edit);
+    }
+
+    pub(crate) fn take_edit_text(&mut self) -> Option<EditText> {
+        self.edit_text.take()
     }
 
     /// World-space position → screen-space position.

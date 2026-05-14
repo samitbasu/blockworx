@@ -3,13 +3,17 @@ use std::{cell::RefCell, sync::Arc};
 use egui::{Rect, vec2};
 
 use crate::{
-    canvas::{Event, Interaction, painter::Painter},
+    canvas::{
+        Event, Interaction,
+        painter::{EditText, Painter},
+    },
     grid::PORT_TEXT_SIZE,
     widget::{data::Data, drawing::LineAnchor, shape::BaseShape},
     widget_ng::{
+        move_tool::MoveTool,
         names::ToolName,
         render::pin_text_location,
-        tool::{Action, EditLine, Tool, ToolTrait},
+        tool::{Action, Tool, ToolTrait},
     },
 };
 
@@ -65,13 +69,21 @@ impl ToolTrait for RenamePin {
                 position,
             } => {
                 super::display::widget(data, interaction, painter);
-                Some(Action::EditLine(EditLine {
-                    position: painter.remap_rect(*position),
+                if interaction.lost_focus || interaction.enter_pressed {
+                    if let Some(shape) = data.rect_mut(anchor.rect)
+                        && let Some(pin) = shape.pins_mut(anchor.pin)
+                    {
+                        pin.text = label.borrow().clone();
+                        return Some(Action::SwitchTool(Tool::Move(MoveTool)));
+                    }
+                }
+                painter.set_edit_text(EditText {
+                    position: *position,
                     buffer: label.clone(),
-                    font: painter.remap_font(egui::FontId::monospace(PORT_TEXT_SIZE)),
-                    width: f32::INFINITY,
+                    font: egui::FontId::monospace(PORT_TEXT_SIZE),
                     id: "pin_name_edit".into(),
-                }))
+                });
+                None
             }
         }
     }

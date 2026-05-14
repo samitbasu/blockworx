@@ -1,6 +1,3 @@
-use std::{cell::RefCell, sync::Arc};
-
-use egui::Rect;
 use enum_dispatch::enum_dispatch;
 
 use crate::{
@@ -30,17 +27,9 @@ pub enum Tool {
     NewPin(NewPin),
     MovePin(MovePin),
     RenamePin(RenamePin),
-}
-
-pub struct EditLine {
-    pub position: Rect,
-    pub buffer: Arc<RefCell<String>>,
-    pub font: egui::FontId,
-    pub width: f32,
-    pub id: egui::Id,
+    Route(RouteTool),
 }
 
 pub enum Action {
     SwitchTool(Tool),
-    EditLine(EditLine),
 }
