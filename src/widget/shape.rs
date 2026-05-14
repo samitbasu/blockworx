@@ -115,6 +115,7 @@ pub trait BaseShape {
     fn title_anchor(&self) -> Option<Pos2> {
         None
     }
+    fn move_by(&mut self, delta: Vec2);
 }
 
 #[enum_dispatch]

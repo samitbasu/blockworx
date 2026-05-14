@@ -8,9 +8,9 @@ use crate::{
     theme::Theme,
     widget::drawing::Drawing,
     widget_ng::{
-        move_tool::MoveTool,
         tool::{Action, Tool, ToolTrait},
         toolbar::toolbar,
+        tools::MoveTool,
     }, // Mode used in commented-out toolbar below
 };
 

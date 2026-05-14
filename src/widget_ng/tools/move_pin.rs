@@ -38,7 +38,7 @@ impl ToolTrait for MovePin {
     ) -> Option<Action> {
         match self {
             MovePin::Idle => {
-                super::display::widget(data, interaction, painter);
+                crate::widget_ng::display::widget(data, interaction, painter);
                 if let Some(Event::HoverAt(hover_pos)) = interaction.event {
                     if data.pin_text_at_pos(hover_pos).is_some() {
                         painter.set_cursor(CursorIcon::PointingHand);

@@ -105,6 +105,9 @@ impl BaseShape for Port {
             ),
         })
     }
+    fn move_by(&mut self, delta: Vec2) {
+        self.inner = self.inner.translate(delta);
+    }
     fn render_ng(&self, mode: RenderMode, painter: &mut Painter) {
         let bbox = self.inner;
         let side = Some(self.pin.side);
@@ -125,7 +128,36 @@ impl BaseShape for Port {
             );
         };
 
-        draw_normal(bbox, &self.pin.text, side, painter);
+        match mode {
+            RenderMode::Moving { delta } => {
+                let shifted = bbox.translate(delta);
+                let predicted = grid_rect(shifted);
+                crate::widget_ng::render::draw_box_outline(
+                    predicted,
+                    side,
+                    Color32::TRANSPARENT,
+                    Stroke::new(1.0, painter.theme().drag_preview_stroke),
+                    painter,
+                );
+                crate::widget_ng::render::draw_box_outline(
+                    shifted,
+                    side,
+                    painter.theme().drag_active_fill,
+                    Stroke::new(2.0, painter.theme().drag_active_stroke),
+                    painter,
+                );
+                painter.text(
+                    shifted.center(),
+                    egui::Align2::CENTER_CENTER,
+                    &self.pin.text,
+                    egui::FontId::monospace(PORT_TEXT_SIZE),
+                    painter.theme().pin_text,
+                );
+            }
+            _ => {
+                draw_normal(bbox, &self.pin.text, side, painter);
+            }
+        }
     }
     fn render(&mut self, mode: RenderMode, ui: &mut Ui) -> FocusResult {
         let bbox = self.inner;

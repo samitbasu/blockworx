@@ -20,7 +20,7 @@ impl ToolTrait for MoveTool {
         interaction: &Interaction,
         painter: &mut Painter,
     ) -> Option<Action> {
-        super::display::widget(data, interaction, painter);
+        crate::widget_ng::display::widget(data, interaction, painter);
         None
     }
 }

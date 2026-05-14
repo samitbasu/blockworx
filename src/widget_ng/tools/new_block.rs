@@ -26,7 +26,7 @@ impl ToolTrait for NewBlock {
         painter: &mut Painter,
     ) -> Option<Action> {
         // Draw the background
-        super::display::widget(data, interaction, painter);
+        crate::widget_ng::display::widget(data, interaction, painter);
         match self {
             NewBlock::Idle => {
                 if let Some(Event::DragStarted { pos }) = interaction.event {

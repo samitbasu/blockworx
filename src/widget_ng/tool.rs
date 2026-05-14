@@ -4,8 +4,8 @@ use crate::{
     canvas::{Interaction, painter::Painter},
     widget::data::Data,
     widget_ng::{
-        move_pin::MovePin, move_tool::MoveTool, names::ToolName, new_block::NewBlock,
-        new_pin::NewPin, rename_pin::RenamePin,
+        names::ToolName,
+        tools::{MoveBlock, MovePin, MoveTool, NewBlock, NewPin, RenamePin, RouteTool},
     },
 };
 
@@ -28,6 +28,7 @@ pub enum Tool {
     MovePin(MovePin),
     RenamePin(RenamePin),
     Route(RouteTool),
+    MoveBlock(MoveBlock),
 }
 
 pub enum Action {

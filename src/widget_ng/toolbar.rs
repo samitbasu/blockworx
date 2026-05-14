@@ -1,13 +1,9 @@
 use crate::{
     grid::GRID_SIZE,
     widget_ng::{
-        move_pin::MovePin,
-        move_tool::MoveTool,
         names::{TOOLBAR_TOOLS, ToolName},
-        new_block::NewBlock,
-        new_pin::NewPin,
-        rename_pin::RenamePin,
         tool::{Tool, ToolTrait},
+        tools::{MoveBlock, MovePin, MoveTool, NewBlock, NewPin, RenamePin, RouteTool},
     },
 };
 
@@ -29,6 +25,8 @@ pub fn toolbar(tool: &mut Tool, ctx: &egui::Context) {
                                 ToolName::NewPin => Tool::NewPin(NewPin),
                                 ToolName::MovePin => Tool::MovePin(MovePin::Idle),
                                 ToolName::RenamePin => Tool::RenamePin(RenamePin::Idle),
+                                ToolName::Route => Tool::Route(RouteTool::default()),
+                                ToolName::MoveBlock => Tool::MoveBlock(MoveBlock::Idle),
                             };
                         }
                     }

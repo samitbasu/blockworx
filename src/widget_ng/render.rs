@@ -324,7 +324,7 @@ pub fn render_path_with_chamfered_corners(points: &[Pos2]) -> RenderedPath {
     rendered_segments.into()
 }
 
-fn draw_block_title(bbox: Rect, title: &Title, painter: &mut Painter) {
+pub fn draw_block_title(bbox: Rect, title: &Title, painter: &mut Painter) {
     let (pos, align) = block_title_position(bbox, title);
     painter.text(
         pos,

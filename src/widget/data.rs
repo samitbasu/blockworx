@@ -1,7 +1,7 @@
-use egui::{Pos2, Rect, vec2};
+use egui::{Pos2, Rect, Vec2, vec2};
 
 use crate::{
-    grid::{GRID_SIZE, snap_to_grid},
+    grid::{GRID_SIZE, grid_rect, snap_to_grid},
     router::{RouterNG, RouterNGBuilder, WIRE_COST, cost::COST_ZERO},
     store::{RectId, RouteId, Store},
     widget::{
@@ -79,6 +79,15 @@ impl Data {
             }
         }
         None
+    }
+    pub fn block_at_pos(&self, pos: Pos2) -> Option<RectId> {
+        self.rect_boxes.iter().find_map(|(id, shape)| {
+            if shape.gui_rect().contains(pos) {
+                Some(id)
+            } else {
+                None
+            }
+        })
     }
     pub fn pin_text_at_pos(&self, pos: Pos2) -> Option<(LineAnchor, PinLocation)> {
         for (id, rect_box) in self.rect_boxes() {
@@ -169,5 +178,23 @@ impl Data {
         self.update_routes(&[]);
         self.router.clone().unwrap()
         //        }
+    }
+    pub fn move_block(&mut self, id: RectId, delta: Vec2) {
+        // Check for collisions, and reject the move if it would cause a collision.
+        let Some(shape) = self.rect_boxes.get(id) else {
+            return;
+        };
+        let new_rect = grid_rect(shape.gui_rect().translate(delta));
+        for (other_id, other_shape) in self.rect_boxes.iter() {
+            if other_id == id {
+                continue;
+            }
+            if new_rect.intersects(other_shape.gui_rect()) {
+                return;
+            }
+        }
+        if let Some(shape) = self.rect_boxes.get_mut(id) {
+            shape.move_by(snap_to_grid(delta.to_pos2()).to_vec2())
+        }
     }
 }

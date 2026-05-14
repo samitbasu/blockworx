@@ -254,6 +254,9 @@ impl BaseShape for Block {
         let (pos, _) = block_title_position(self.inner, &self.title);
         Some(pos)
     }
+    fn move_by(&mut self, delta: Vec2) {
+        self.inner = self.inner.translate(delta);
+    }
     fn render_ng(&self, mode: RenderMode, painter: &mut Painter) {
         let bbox = self.inner;
         match mode {
@@ -274,6 +277,30 @@ impl BaseShape for Block {
                     crate::widget_ng::render::draw_pin(bbox, pin, delta, Some(side), painter);
                 }
                 return;
+            }
+            RenderMode::Moving { delta } => {
+                let shifted = bbox.translate(delta);
+                let predicted = grid_rect(shifted);
+                crate::widget_ng::render::draw_box_outline(
+                    predicted,
+                    None,
+                    Color32::TRANSPARENT,
+                    Stroke::new(1.0, painter.theme().drag_preview_stroke),
+                    painter,
+                );
+                crate::widget_ng::render::draw_box_outline(
+                    shifted,
+                    None,
+                    painter.theme().drag_active_fill,
+                    Stroke::new(2.0, painter.theme().drag_active_stroke),
+                    painter,
+                );
+                crate::widget_ng::render::draw_block_title(shifted, &self.title, painter);
+                crate::widget_ng::render::render_pins_with_box(
+                    self.pins.values(),
+                    shifted,
+                    painter,
+                );
             }
             _ => {
                 crate::widget_ng::render::draw_block_frame(bbox, &self.title, painter);

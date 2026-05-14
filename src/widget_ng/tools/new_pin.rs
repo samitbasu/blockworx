@@ -21,7 +21,7 @@ impl ToolTrait for NewPin {
         interaction: &crate::canvas::Interaction,
         painter: &mut crate::canvas::painter::Painter,
     ) -> Option<Action> {
-        super::display::widget(data, interaction, painter);
+        crate::widget_ng::display::widget(data, interaction, painter);
         for (_id, rect_box) in data.rect_boxes_mut() {
             for pin_center in rect_box.new_pin_locations() {
                 let Some(pin_center_pos) = rect_box.pin_position(pin_center) else {

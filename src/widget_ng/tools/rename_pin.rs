@@ -10,12 +10,13 @@ use crate::{
     grid::PORT_TEXT_SIZE,
     widget::{data::Data, drawing::LineAnchor, shape::BaseShape},
     widget_ng::{
-        move_tool::MoveTool,
         names::ToolName,
         render::pin_text_location,
         tool::{Action, Tool, ToolTrait},
     },
 };
+
+use super::move_tool::MoveTool;
 
 pub enum RenamePin {
     Idle,
@@ -40,7 +41,7 @@ impl ToolTrait for RenamePin {
         eprintln!("interaction {:?}", interaction);
         match self {
             RenamePin::Idle => {
-                super::display::widget(data, interaction, painter);
+                crate::widget_ng::display::widget(data, interaction, painter);
                 if let Some(Event::DoubleClicked { pos }) = interaction.event {
                     if let Some((anchor, _)) = data.pin_text_at_pos(pos)
                         && let Some(shape) = data.rect(anchor.rect)
@@ -68,7 +69,7 @@ impl ToolTrait for RenamePin {
                 label,
                 position,
             } => {
-                super::display::widget(data, interaction, painter);
+                crate::widget_ng::display::widget(data, interaction, painter);
                 if interaction.lost_focus || interaction.enter_pressed {
                     if let Some(shape) = data.rect_mut(anchor.rect)
                         && let Some(pin) = shape.pins_mut(anchor.pin)
