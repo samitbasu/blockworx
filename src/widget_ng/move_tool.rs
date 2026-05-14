@@ -3,7 +3,7 @@ use crate::{
     widget::data::Data,
     widget_ng::{
         names::ToolName,
-        tool::{Tool, ToolTrait},
+        tool::{Action, ToolTrait},
     },
 };
 
@@ -19,7 +19,7 @@ impl ToolTrait for MoveTool {
         data: &mut Data,
         interaction: &Interaction,
         painter: &mut Painter,
-    ) -> Option<Tool> {
+    ) -> Option<Action> {
         super::display::widget(data, interaction, painter);
         None
     }

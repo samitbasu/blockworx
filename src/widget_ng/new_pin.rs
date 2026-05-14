@@ -4,7 +4,7 @@ use crate::{
     widget::shape::BaseShape,
     widget_ng::{
         names::ToolName,
-        tool::{Tool, ToolTrait},
+        tool::{Action, ToolTrait},
     },
 };
 
@@ -20,7 +20,7 @@ impl ToolTrait for NewPin {
         data: &mut crate::widget::data::Data,
         interaction: &crate::canvas::Interaction,
         painter: &mut crate::canvas::painter::Painter,
-    ) -> Option<Tool> {
+    ) -> Option<Action> {
         super::display::widget(data, interaction, painter);
         for (_id, rect_box) in data.rect_boxes_mut() {
             for pin_center in rect_box.new_pin_locations() {

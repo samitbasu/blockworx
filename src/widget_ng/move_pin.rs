@@ -12,7 +12,7 @@ use crate::{
     },
     widget_ng::{
         names::ToolName,
-        tool::{Tool, ToolTrait},
+        tool::{Action, Tool, ToolTrait},
     },
 };
 
@@ -35,7 +35,7 @@ impl ToolTrait for MovePin {
         data: &mut Data,
         interaction: &Interaction,
         painter: &mut Painter,
-    ) -> Option<Tool> {
+    ) -> Option<Action> {
         match self {
             MovePin::Idle => {
                 super::display::widget(data, interaction, painter);
@@ -76,7 +76,7 @@ impl ToolTrait for MovePin {
                     if let Some(rbox) = data.rect_mut(anchor.rect) {
                         rbox.update_pin_location(anchor.pin, *location);
                     }
-                    return Some(Tool::MovePin(MovePin::Idle));
+                    return Some(Action::SwitchTool(Tool::MovePin(MovePin::Idle)));
                 }
                 for (id, shape) in data.rect_boxes() {
                     if id == anchor.rect {

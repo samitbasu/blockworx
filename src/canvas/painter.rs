@@ -54,6 +54,23 @@ impl Painter {
         self.origin + self.translation + world.to_vec2() * self.zoom
     }
 
+    // ── Coordinate remapping (world → screen, no drawing) ──────────────────
+
+    /// Convert a world-space position to screen space.
+    pub fn remap_pos(&self, world: Pos2) -> Pos2 {
+        self.w2s(world)
+    }
+
+    /// Convert a world-space rect to a screen-space rect.
+    pub fn remap_rect(&self, rect: Rect) -> Rect {
+        Rect::from_min_max(self.w2s(rect.min), self.w2s(rect.max))
+    }
+
+    /// Scale a world-space `FontId` to screen space (i.e. multiply size by zoom).
+    pub fn remap_font(&self, font: FontId) -> FontId {
+        FontId::new(font.size * self.zoom, font.family)
+    }
+
     /// Scale a stroke's width by the current zoom level.
     fn scale_stroke(&self, stroke: impl Into<Stroke>) -> Stroke {
         let s = stroke.into();

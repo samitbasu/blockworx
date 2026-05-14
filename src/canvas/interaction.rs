@@ -5,6 +5,7 @@ use egui::{Pos2, Response, Vec2};
 /// `event` holds the mouse/pointer interaction (if any) with all positions
 /// already converted to world space. The boolean flags fire independently —
 /// a key press and a mouse event can both be set in the same frame.
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Interaction {
     pub event: Option<Event>,
     /// The canvas widget lost keyboard focus this frame.
@@ -13,7 +14,7 @@ pub struct Interaction {
     pub enter_pressed: bool,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Event {
     HoverAt(Pos2),
     DragStarted { pos: Pos2 },

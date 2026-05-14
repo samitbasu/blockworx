@@ -4,6 +4,7 @@ pub enum ToolName {
     NewBlock,
     NewPin,
     MovePin,
+    RenamePin,
 }
 
 impl std::fmt::Display for ToolName {
@@ -13,6 +14,7 @@ impl std::fmt::Display for ToolName {
             ToolName::NewBlock => write!(f, "New Block"),
             ToolName::NewPin => write!(f, "New Pin"),
             ToolName::MovePin => write!(f, "Move Pin"),
+            ToolName::RenamePin => write!(f, "Rename Pin"),
         }
     }
 }
@@ -22,4 +24,5 @@ pub const TOOLBAR_TOOLS: &[ToolName] = &[
     ToolName::NewBlock,
     ToolName::NewPin,
     ToolName::MovePin,
+    ToolName::RenamePin,
 ];

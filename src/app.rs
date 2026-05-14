@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 // use egui::{DragPanButtons, Rect, Scene};
-use egui::Rect;
+use egui::{Rect, TextEdit};
 
 use crate::{
     canvas::View,
@@ -9,7 +9,7 @@ use crate::{
     widget::drawing::Drawing,
     widget_ng::{
         move_tool::MoveTool,
-        tool::{Tool, ToolTrait},
+        tool::{Action, Tool, ToolTrait},
         toolbar::toolbar,
     }, // Mode used in commented-out toolbar below
 };
@@ -24,6 +24,7 @@ pub struct App {
     pub theme: Theme,
     canvas: View,
     tool: Tool,
+    focus_lost: bool,
 }
 
 impl App {
@@ -35,6 +36,7 @@ impl App {
             theme: Theme::default(),
             canvas: View::new(Theme::default()),
             tool: Tool::Move(MoveTool),
+            focus_lost: false,
         }
     }
 }
@@ -44,15 +46,38 @@ impl eframe::App for App {
         ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, self.theme));
         egui::CentralPanel::default().show(ctx, |ui| {
             let mut ui_cursor = None;
-            self.canvas.show(ui, |interaction, painter| {
-                if let Some(next_tool) =
-                    self.tool
-                        .widget(self.drawing.data_mut(), &interaction, painter)
-                {
-                    self.tool = next_tool;
+            let mut editor = None;
+            self.canvas.show(ui, |mut interaction, painter| {
+                interaction.lost_focus |= self.focus_lost;
+                let action = self
+                    .tool
+                    .widget(self.drawing.data_mut(), &interaction, painter);
+                match action {
+                    Some(Action::SwitchTool(next_tool)) => {
+                        self.drawing.data_mut().update_routes(&[]);
+                        self.tool = next_tool;
+                    }
+                    Some(Action::EditLine(edit_line)) => {
+                        editor = Some(edit_line);
+                    }
+                    None => { /* No action */ }
                 }
                 ui_cursor = painter.cursor();
             });
+            self.focus_lost = false;
+            if let Some(editor) = editor {
+                let mut buffer = editor.buffer.borrow_mut();
+                let response = ui.place(
+                    editor.position,
+                    TextEdit::singleline(&mut *buffer)
+                        .id(editor.id)
+                        .desired_width(editor.width)
+                        .font(editor.font),
+                );
+                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.focus_lost = true;
+                }
+            }
             if let Some(cursor) = ui_cursor {
                 ui.output_mut(|o| {
                     o.cursor_icon = cursor;

@@ -6,6 +6,7 @@ use crate::{
         names::{TOOLBAR_TOOLS, ToolName},
         new_block::NewBlock,
         new_pin::NewPin,
+        rename_pin::RenamePin,
         tool::{Tool, ToolTrait},
     },
 };
@@ -27,6 +28,7 @@ pub fn toolbar(tool: &mut Tool, ctx: &egui::Context) {
                                 ToolName::NewBlock => Tool::NewBlock(NewBlock::Idle),
                                 ToolName::NewPin => Tool::NewPin(NewPin),
                                 ToolName::MovePin => Tool::MovePin(MovePin::Idle),
+                                ToolName::RenamePin => Tool::RenamePin(RenamePin::Idle),
                             };
                         }
                     }
