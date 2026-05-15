@@ -116,6 +116,9 @@ pub trait BaseShape {
         None
     }
     fn move_by(&mut self, delta: Vec2);
+    fn resizable(&self) -> bool {
+        false
+    }
 }
 
 #[enum_dispatch]

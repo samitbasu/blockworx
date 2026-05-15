@@ -4,6 +4,7 @@ pub mod move_tool;
 pub mod new_block;
 pub mod new_pin;
 pub mod rename_pin;
+pub mod resize_block;
 pub mod route_tool;
 
 pub use move_block::MoveBlock;

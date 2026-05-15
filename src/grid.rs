@@ -2,6 +2,7 @@ use egui::{Pos2, Rect, pos2};
 
 pub const GRID_SIZE: f32 = 15.0;
 pub const SHIM: f32 = GRID_SIZE * 0.7;
+pub const RESIZE_SHIM: f32 = GRID_SIZE / 4.0;
 pub const MOVE_HOVER_DISTANCE: f32 = GRID_SIZE * 0.8;
 pub const PORT_RADIUS: f32 = GRID_SIZE * 0.3;
 pub const LINE_RADIUS: f32 = GRID_SIZE * 0.5;

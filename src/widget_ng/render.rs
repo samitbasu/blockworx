@@ -345,3 +345,36 @@ pub fn draw_block_frame(bbox: Rect, title: &Title, painter: &mut Painter) {
     );
     draw_block_title(bbox, title, painter);
 }
+
+pub fn draw_selection_frame(bbox: Rect, mode: Option<ResizeMode>, painter: &mut Painter) {
+    let bbox = bbox.expand(RESIZE_SHIM);
+    draw_box_outline(
+        bbox,
+        None,
+        Color32::TRANSPARENT,
+        Stroke::new(1.0, Color32::LIGHT_BLUE),
+        painter,
+    );
+    for pos in [
+        bbox.left_top(),
+        bbox.right_top(),
+        bbox.left_bottom(),
+        bbox.right_bottom(),
+    ] {
+        painter.circle(
+            pos,
+            PORT_RADIUS,
+            Color32::LIGHT_GREEN,
+            (0.5, Color32::DARK_GREEN),
+        );
+    }
+    if let Some(mode) = mode {
+        let pos = match mode {
+            ResizeMode::LeftTop => bbox.left_top(),
+            ResizeMode::RightTop => bbox.right_top(),
+            ResizeMode::LeftBottom => bbox.left_bottom(),
+            ResizeMode::RightBottom => bbox.right_bottom(),
+        };
+        painter.circle(pos, PORT_RADIUS, Color32::GREEN, (1.0, Color32::WHITE));
+    }
+}

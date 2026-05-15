@@ -3,7 +3,10 @@ use crate::{
     widget_ng::{
         names::{TOOLBAR_TOOLS, ToolName},
         tool::{Tool, ToolTrait},
-        tools::{MoveBlock, MovePin, MoveTool, NewBlock, NewPin, RenamePin, RouteTool},
+        tools::{
+            MoveBlock, MovePin, MoveTool, NewBlock, NewPin, RenamePin, RouteTool,
+            resize_block::ResizeBlock,
+        },
     },
 };
 
@@ -27,6 +30,7 @@ pub fn toolbar(tool: &mut Tool, ctx: &egui::Context) {
                                 ToolName::RenamePin => Tool::RenamePin(RenamePin::Idle),
                                 ToolName::Route => Tool::Route(RouteTool::default()),
                                 ToolName::MoveBlock => Tool::MoveBlock(MoveBlock::Idle),
+                                ToolName::ResizeBlock => Tool::ResizeBlock(ResizeBlock::Idle),
                             };
                         }
                     }

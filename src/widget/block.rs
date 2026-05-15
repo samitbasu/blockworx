@@ -257,6 +257,9 @@ impl BaseShape for Block {
     fn move_by(&mut self, delta: Vec2) {
         self.inner = self.inner.translate(delta);
     }
+    fn resizable(&self) -> bool {
+        true
+    }
     fn render_ng(&self, mode: RenderMode, painter: &mut Painter) {
         let bbox = self.inner;
         match mode {
@@ -301,6 +304,36 @@ impl BaseShape for Block {
                     shifted,
                     painter,
                 );
+            }
+            RenderMode::Selected => {
+                crate::widget_ng::render::draw_block_frame(bbox, &self.title, painter);
+                crate::widget_ng::render::render_pins_with_box(self.pins.values(), bbox, painter);
+                crate::widget_ng::render::draw_selection_frame(bbox, None, painter);
+            }
+            RenderMode::Resizing { mode, delta } => {
+                let resized = resize_rect(&bbox, mode, delta);
+                let predicted = grid_rect(resized);
+                crate::widget_ng::render::draw_box_outline(
+                    predicted,
+                    None,
+                    Color32::TRANSPARENT,
+                    Stroke::new(1.0, painter.theme().drag_preview_stroke),
+                    painter,
+                );
+                crate::widget_ng::render::draw_box_outline(
+                    resized,
+                    None,
+                    painter.theme().drag_active_fill,
+                    Stroke::new(2.0, painter.theme().drag_active_stroke),
+                    painter,
+                );
+                crate::widget_ng::render::draw_block_title(resized, &self.title, painter);
+                crate::widget_ng::render::render_pins_with_box(
+                    self.pins.values(),
+                    resized,
+                    painter,
+                );
+                crate::widget_ng::render::draw_selection_frame(resized, Some(mode), painter);
             }
             _ => {
                 crate::widget_ng::render::draw_block_frame(bbox, &self.title, painter);

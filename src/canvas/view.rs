@@ -1,5 +1,6 @@
 use egui::{PointerButton, Pos2, Sense, Stroke, Vec2, pos2};
 
+use crate::canvas::Event;
 use crate::grid::GRID_SIZE;
 use crate::theme::{Theme, get_theme};
 
@@ -12,6 +13,7 @@ pub struct View {
     pub theme: Theme,
     text_edit_lost_focus: bool,
     text_edit_enter_pressed: bool,
+    last_mouse_down: Option<Pos2>,
 }
 
 impl View {
@@ -22,6 +24,7 @@ impl View {
             theme,
             text_edit_lost_focus: false,
             text_edit_enter_pressed: false,
+            last_mouse_down: None,
         }
     }
     fn world_to_screen(&self, origin: Pos2, world: Pos2) -> Pos2 {
@@ -49,6 +52,14 @@ impl View {
             let p = cursor.to_vec2() - origin.to_vec2() - self.translation;
             self.translation = cursor.to_vec2() - origin.to_vec2() - p * (new_zoom / self.zoom);
             self.zoom = new_zoom;
+        }
+
+        if let Some(pos) = response.interact_pointer_pos() {
+            if self.last_mouse_down.is_none() {
+                self.last_mouse_down = Some(pos);
+            }
+        } else {
+            self.last_mouse_down = None;
         }
 
         // Pan on right-click or middle-click drag
@@ -111,6 +122,11 @@ impl View {
             self.zoom,
             ui,
         );
+        if let Some(Event::DragStarted { pos }) = interaction.event.as_mut()
+            && let Some(last) = self.last_mouse_down
+        {
+            *pos = self.screen_to_world(origin, last);
+        }
 
         // Inject focus results from the previous frame's TextEdit
         interaction.lost_focus |= self.text_edit_lost_focus;

@@ -5,7 +5,10 @@ use crate::{
     widget::data::Data,
     widget_ng::{
         names::ToolName,
-        tools::{MoveBlock, MovePin, MoveTool, NewBlock, NewPin, RenamePin, RouteTool},
+        tools::{
+            MoveBlock, MovePin, MoveTool, NewBlock, NewPin, RenamePin, RouteTool,
+            resize_block::ResizeBlock,
+        },
     },
 };
 
@@ -29,6 +32,7 @@ pub enum Tool {
     RenamePin(RenamePin),
     Route(RouteTool),
     MoveBlock(MoveBlock),
+    ResizeBlock(ResizeBlock),
 }
 
 pub enum Action {
